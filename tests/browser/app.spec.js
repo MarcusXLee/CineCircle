@@ -20,21 +20,18 @@ test("discovery, movie search, detail and seat selection use real data", async (
   await expect(
     page.getByRole("heading", { name: "Casablanca", exact: true }).first(),
   ).toBeVisible();
-  // The spotlight switches films, and the ticket beside it follows.
-  await page.getByRole("tab", { name: "The Grand Budapest Hotel" }).click();
-  await expect(
-    page
-      .getByRole("heading", { name: "The Grand Budapest Hotel", exact: true })
-      .first(),
-  ).toBeVisible();
+  // The edge arrows switch films and wrap around; the ticket beside it follows.
+  const current = page.locator(".feature-copy.current h1");
+  await page.getByRole("button", { name: "Next film" }).click();
+  await expect(current).toHaveText("Rear Window");
   await expect(page.locator(".admission-copy.current h2")).toHaveText(
-    "The Grand Budapest Hotel",
+    "Rear Window",
   );
-  await page.keyboard.press("ArrowRight");
-  await expect(page.getByRole("tab", { name: "Rear Window" })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
+  await page.getByRole("button", { name: "Previous film" }).click();
+  await page.getByRole("button", { name: "Previous film" }).click();
+  await expect(current).toHaveText("La La Land");
+  await page.getByRole("button", { name: "Next film" }).click();
+  await expect(current).toHaveText("Casablanca");
   await page.getByRole("link", { name: "Films", exact: true }).first().click();
   await page.getByRole("searchbox", { name: "Search films" }).fill("Spirited");
   await expect(

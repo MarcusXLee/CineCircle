@@ -15,6 +15,7 @@ import NotFound from "./pages/NotFound.vue";
 import "@fontsource-variable/bricolage-grotesque";
 import "@fontsource-variable/dm-sans";
 import "@fontsource/baskervville/latin-400.css";
+import "@fontsource/baskervville/latin-400-italic.css";
 import "@fontsource/cinzel/latin-500.css";
 import "@fontsource/cinzel/latin-600.css";
 import "./style.css";

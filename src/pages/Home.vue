@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount, watch } from "vue";
 import {
   ArrowUpRight,
   ArrowRight,
@@ -31,13 +31,33 @@ const movies = ref([]),
   error = ref(""),
   sort = ref("popular"),
   editor = ref(null),
-  tabs = ref([]);
+  hovering = ref(false),
+  keyboarding = ref(false);
+// The spotlight moves to the next film every 7 seconds, looping back to the first. It waits
+// while the pointer is over the spotlight or ticket, or while someone is moving through it
+// with the keyboard, and stays still for visitors who ask their system to reduce motion.
+const TURN_MS = 7000;
+const paused = computed(() => hovering.value || keyboarding.value);
+let turnTimer;
+function scheduleTurn() {
+  clearTimeout(turnTimer);
+  if (paused.value || spotlight.value.length < 2) return;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  turnTimer = setTimeout(() => {
+    if (document.hidden) scheduleTurn();
+    else show(current.value + 1);
+  }, TURN_MS);
+}
+watch([current, paused, () => spotlight.value.length], scheduleTurn);
+onBeforeUnmount(() => clearTimeout(turnTimer));
 const orders = [
   { key: "popular", label: "Popular" },
   { key: "rating", label: "Top rated" },
   { key: "newest", label: "Newest" },
 ];
 const featured = computed(() => spotlight.value[current.value]);
+// Which side of the frame holds the text; the still fades out towards that side.
+const sideOf = (film) => film?.print?.side || "left";
 // The ticket follows the film in the spotlight: its next screening, if it has one.
 const nextFor = (film) =>
   screenings.value.find((s) => s.movieId === film?.movieId);
@@ -68,18 +88,31 @@ async function load() {
     loading.value = false;
   }
 }
-function show(index, focus = false) {
+// Wraps in both directions: after the last film comes the first, and before the first, the last.
+function show(index) {
   const count = spotlight.value.length;
+  if (!count) return;
   current.value = (index + count) % count;
-  if (focus) tabs.value[current.value]?.focus();
+  scheduleTurn();
 }
-function onTabKey(event) {
-  const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
-  if (step) show(current.value + step, true);
-  else if (event.key === "Home") show(0, true);
-  else if (event.key === "End") show(spotlight.value.length - 1, true);
-  else return;
-  event.preventDefault();
+// A mouse click leaves focus on the arrow; only keyboard focus should hold the spotlight.
+function onFocusIn(event) {
+  keyboarding.value = event.target.matches(":focus-visible");
+}
+function onFocusOut(event) {
+  if (!event.currentTarget.contains(event.relatedTarget))
+    keyboarding.value = false;
+}
+// Touch screens have no hover, so a horizontal swipe changes film instead.
+let touchX = null;
+function onTouchStart(event) {
+  touchX = event.touches[0].clientX;
+}
+function onTouchEnd(event) {
+  if (touchX === null) return;
+  const distance = event.changedTouches[0].clientX - touchX;
+  touchX = null;
+  if (Math.abs(distance) > 48) show(current.value + (distance < 0 ? 1 : -1));
 }
 // Ignores a slow response if the visitor has already picked another order.
 async function changeSort(value) {
@@ -106,20 +139,30 @@ watch(() => state.user?.userId, load);
       aria-label="Loading featured films"
     ></div>
     <template v-else
-      ><section class="lobby-grid" aria-label="Film spotlight">
+      ><section
+        class="lobby-grid"
+        aria-label="Film spotlight"
+        @pointerenter="hovering = true"
+        @pointerleave="hovering = false"
+        aria-roledescription="carousel"
+        @focusin="onFocusIn"
+        @focusout="onFocusOut"
+      >
         <article
           v-if="featured"
-          :id="`spotlight-panel-${featured.movieId}`"
           class="feature-film"
-          role="tabpanel"
-          :aria-labelledby="`spotlight-tab-${featured.movieId}`"
-          :style="{ '--film-tint': featured.print?.paper || featured.color }"
+          :style="{
+            '--film-tint': featured.print?.paper || featured.color,
+            '--glow-x': sideOf(featured) === 'right' ? '88%' : '12%',
+          }"
+          @touchstart.passive="onTouchStart"
+          @touchend="onTouchEnd"
         >
           <div class="feature-backdrop">
             <img
               v-for="(film, index) in spotlight"
               :key="film.movieId"
-              :class="{ current: index === current }"
+              :class="[`side-${sideOf(film)}`, { current: index === current }]"
               :src="film.print?.image || film.poster"
               :alt="
                 index === current
@@ -127,28 +170,38 @@ watch(() => state.user?.userId, load);
                   : ''
               "
               :style="{
-                objectPosition: film.print?.focus || '65% center',
+                objectPosition: `${film.print?.frameX || '50%'} 50%`,
                 transform: `scale(${film.print?.scale || 1})`,
               }"
             />
           </div>
           <div class="feature-content">
-            <span class="feature-kicker"
-              ><span class="medallion small"
-                ><Aperture :size="14" aria-hidden="true" /></span
-              >Film spotlight</span
-            >
             <!-- Every film's text shares one grid cell, so the card keeps the height of the
                  longest one and does not jump when the spotlight changes. -->
-            <div class="feature-stack">
+            <div class="feature-stack" :aria-live="paused ? 'polite' : 'off'">
               <div
                 v-for="(film, index) in spotlight"
                 :key="film.movieId"
                 class="feature-copy"
-                :class="{ current: index === current }"
+                role="group"
+                aria-roledescription="slide"
+                :aria-label="`${index + 1} of ${spotlight.length}: ${film.title}`"
+                :class="[
+                  `side-${sideOf(film)}`,
+                  { current: index === current },
+                ]"
+                :style="{
+                  '--title-scale': film.print?.titleScale || 1,
+                  '--lift': film.print?.lift || '0px',
+                }"
                 :aria-hidden="index !== current"
                 :inert="index !== current"
               >
+                <span class="feature-kicker"
+                  ><span class="medallion small"
+                    ><Aperture :size="14" aria-hidden="true" /></span
+                  >Film spotlight</span
+                >
                 <h1>{{ film.title }}</h1>
                 <div class="feature-meta">
                   <span v-if="film.director">{{ film.director }}</span
@@ -163,6 +216,10 @@ watch(() => state.user?.userId, load);
                   >
                 </div>
                 <p v-if="film.description">{{ film.description }}</p>
+                <figure v-if="film.print?.quote" class="feature-quote">
+                  <blockquote>“{{ film.print.quote.line }}”</blockquote>
+                  <figcaption>{{ film.print.quote.by }}</figcaption>
+                </figure>
                 <RouterLink
                   :to="`/films/${film.movieId}`"
                   class="button primary"
@@ -171,46 +228,27 @@ watch(() => state.user?.userId, load);
               </div>
             </div>
           </div>
-          <div class="spotlight-reel">
-            <button
-              type="button"
-              class="reel-step"
-              aria-label="Previous film"
-              @click="show(current - 1)"
-            >
-              <ArrowLeft :size="16" aria-hidden="true" />
-            </button>
-            <div class="reel-frames" role="tablist" aria-label="Featured films">
-              <button
-                v-for="(film, index) in spotlight"
-                :id="`spotlight-tab-${film.movieId}`"
-                :key="film.movieId"
-                :ref="(el) => (tabs[index] = el)"
-                type="button"
-                role="tab"
-                :aria-selected="index === current"
-                :aria-controls="`spotlight-panel-${film.movieId}`"
-                :aria-label="film.title"
-                :tabindex="index === current ? 0 : -1"
-                @click="show(index)"
-                @keydown="onTabKey"
-              >
-                <img :src="film.print?.image || film.poster" alt="" />
-              </button>
-            </div>
-            <button
-              type="button"
-              class="reel-step"
-              aria-label="Next film"
-              @click="show(current + 1)"
-            >
-              <ArrowRight :size="16" aria-hidden="true" />
-            </button>
-            <span class="reel-count" aria-hidden="true"
-              >{{ String(current + 1).padStart(2, "0") }} /
-              {{ String(spotlight.length).padStart(2, "0") }}</span
-            >
-          </div>
+          <!-- Edge controls stay hidden until the pointer reaches that side of the frame. -->
+          <button
+            type="button"
+            class="spotlight-edge previous"
+            aria-label="Previous film"
+            @click="show(current - 1)"
+          >
+            <span class="edge-medallion"
+              ><ArrowLeft :size="18" aria-hidden="true"
+            /></span>
+          </button>
+          <button
+            type="button"
+            class="spotlight-edge next"
+            aria-label="Next film"
+            @click="show(current + 1)"
+          >
+            <span class="edge-medallion"
+              ><ArrowRight :size="18" aria-hidden="true"
+            /></span>
+          </button>
         </article>
         <aside class="admission" aria-label="Next screening">
           <div class="admission-paper">
@@ -367,27 +405,41 @@ watch(() => state.user?.userId, load);
   border: 1px solid var(--line);
   background:
     radial-gradient(
-      circle at 12% 28%,
+      circle at var(--glow-x, 12%) 28%,
       color-mix(in srgb, var(--film-tint) 16%, transparent),
       transparent 55%
     ),
     var(--deep);
   isolation: isolate;
 }
+/* Each still fills the whole frame, close to its own 16:9 framing, and dissolves into the
+   dark on the side that holds the text, with a lighter fade along the bottom. */
 .feature-backdrop {
   position: absolute;
-  inset: 0 0 0 auto;
-  width: 72%;
+  inset: 0;
   overflow: hidden;
   z-index: -1;
-  -webkit-mask-image:
-    linear-gradient(90deg, transparent 0%, rgb(0 0 0 / 0.55) 30%, #000 58%),
-    linear-gradient(0deg, transparent 0%, #000 36%);
+}
+.feature-backdrop img.side-left,
+.feature-backdrop img.side-right {
   -webkit-mask-composite: source-in;
-  mask-image:
-    linear-gradient(90deg, transparent 0%, rgb(0 0 0 / 0.55) 30%, #000 58%),
-    linear-gradient(0deg, transparent 0%, #000 36%);
   mask-composite: intersect;
+}
+.feature-backdrop img.side-left {
+  -webkit-mask-image:
+    linear-gradient(90deg, transparent 0%, rgb(0 0 0 / 0.55) 24%, #000 50%),
+    linear-gradient(0deg, transparent 0%, #000 18%);
+  mask-image:
+    linear-gradient(90deg, transparent 0%, rgb(0 0 0 / 0.55) 24%, #000 50%),
+    linear-gradient(0deg, transparent 0%, #000 18%);
+}
+.feature-backdrop img.side-right {
+  -webkit-mask-image:
+    linear-gradient(270deg, transparent 0%, rgb(0 0 0 / 0.55) 24%, #000 50%),
+    linear-gradient(0deg, transparent 0%, #000 18%);
+  mask-image:
+    linear-gradient(270deg, transparent 0%, rgb(0 0 0 / 0.55) 24%, #000 50%),
+    linear-gradient(0deg, transparent 0%, #000 18%);
 }
 /* The still is enlarged inside its frame to crop its letterbox edge. */
 .feature-backdrop img {
@@ -403,10 +455,35 @@ watch(() => state.user?.userId, load);
 .feature-backdrop img.current {
   opacity: 1;
 }
+/* Each film's text block is centred vertically and sits on its own side of the frame. */
 .feature-content {
   position: relative;
-  padding: clamp(30px, 3.2vw, 46px) clamp(26px, 3vw, 42px) 44px;
-  max-width: 600px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: clamp(30px, 3.2vw, 46px) clamp(26px, 3vw, 42px) 40px;
+}
+/* On mid-sized screens the still covers less of the frame, keeping its people clear of
+   the text. */
+.feature-stack {
+  flex: 1;
+}
+.feature-copy {
+  align-self: center;
+  width: min(100%, 360px);
+  padding-bottom: 8px;
+}
+.feature-copy.side-right {
+  justify-self: end;
+  text-align: right;
+}
+.feature-copy.side-right .feature-meta,
+.feature-copy.side-right .feature-kicker {
+  justify-content: flex-end;
+}
+.feature-copy > .feature-kicker {
+  display: flex;
+  margin-bottom: 20px;
 }
 .feature-stack,
 .admission-stack {
@@ -436,12 +513,12 @@ watch(() => state.user?.userId, load);
 }
 .feature-content h1 {
   font-family: "Baskervville", Georgia, serif;
-  font-size: clamp(48px, 5vw, 76px);
+  font-size: calc(clamp(48px, 5vw, 76px) * var(--title-scale, 1));
   font-weight: 400;
   line-height: 0.99;
   letter-spacing: -0.05em;
   margin: 24px 0 18px;
-  max-width: 11ch;
+  max-width: 16ch;
   text-wrap: balance;
   text-shadow: 0 2px 24px rgb(0 0 0 / 0.35);
 }
@@ -464,8 +541,41 @@ watch(() => state.user?.userId, load);
   gap: 5px;
   color: var(--amber);
 }
+/* A film can sit a little above centre (its `lift`) without changing the frame's size. */
+.feature-copy {
+  translate: 0 calc(var(--lift, 0px) * -1);
+}
+.feature-quote {
+  margin: -4px 0 26px;
+}
+.feature-quote blockquote {
+  margin: 0;
+  max-width: 34ch;
+  font-family: "Baskervville", Georgia, serif;
+  font-style: italic;
+  font-size: 18px;
+  line-height: 1.4;
+  color: var(--pearl);
+  text-wrap: pretty;
+}
+.feature-quote figcaption {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--gilt);
+}
+.feature-quote figcaption::before {
+  content: "";
+  width: 22px;
+  border-top: 1px solid var(--gilt-line);
+}
 .feature-copy > p {
-  max-width: 44ch;
+  max-width: 40ch;
   margin: 16px 0 24px;
   font-size: 14px;
   line-height: 1.65;
@@ -473,71 +583,87 @@ watch(() => state.user?.userId, load);
   text-wrap: pretty;
 }
 
-/* Film reel: one frame per featured film, with previous and next. */
-.spotlight-reel {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: auto;
-  align-self: flex-end;
-  max-width: 100%;
-  padding: 0 clamp(18px, 2vw, 26px) 20px;
+/* Slow drift on the still being shown. */
+.feature-backdrop img.current {
+  animation: still-drift 12s ease-out forwards;
 }
-.reel-frames {
-  display: flex;
-  gap: 8px;
-  min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-  padding: 3px;
+@keyframes still-drift {
+  from {
+    scale: 1;
+  }
+  to {
+    scale: 1.045;
+  }
 }
-.reel-frames button {
-  flex-shrink: 0;
-  width: 66px;
-  height: 42px;
-  padding: 0;
-  overflow: hidden;
-  border-radius: 5px;
-  border: 1px solid rgb(255 255 255 / 0.22);
-  opacity: 0.6;
-  transition:
-    opacity 0.2s,
-    box-shadow 0.2s;
-}
-.reel-frames button:hover {
-  opacity: 0.9;
-}
-.reel-frames button[aria-selected="true"] {
-  opacity: 1;
-  border-color: var(--gilt);
-  box-shadow: 0 0 0 2px rgb(236 211 162 / 0.3);
-}
-.reel-frames img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.reel-step {
-  flex-shrink: 0;
+
+/* Edge controls: invisible bands along each side that bring up a gilt medallion and a
+   soft veil when the pointer arrives. */
+.spotlight-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  width: 64px;
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 0.45s ease;
+}
+.spotlight-edge.previous {
+  left: 0;
+  background: linear-gradient(90deg, rgb(12 11 15 / 0.62), transparent);
+}
+.spotlight-edge.next {
+  right: 0;
+  background: linear-gradient(270deg, rgb(12 11 15 / 0.62), transparent);
+}
+.spotlight-edge:hover,
+.spotlight-edge:focus-visible {
+  opacity: 1;
+}
+.spotlight-edge:focus-visible {
+  outline: none;
+}
+.edge-medallion {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
   border-radius: 50%;
   color: var(--gilt);
   border: 1px solid var(--gilt-line);
   background: var(--grain), var(--medallion-face);
   box-shadow: var(--medallion-shadow);
+  transition:
+    transform 0.5s cubic-bezier(0.2, 0.7, 0.2, 1),
+    color 0.2s;
 }
-.reel-step:hover {
+.spotlight-edge.previous .edge-medallion {
+  transform: translateX(-10px);
+}
+.spotlight-edge.next .edge-medallion {
+  transform: translateX(10px);
+}
+.spotlight-edge:hover .edge-medallion,
+.spotlight-edge:focus-visible .edge-medallion {
+  transform: none;
   color: var(--pearl);
 }
-.reel-count {
-  flex-shrink: 0;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  font-variant-numeric: tabular-nums;
-  color: var(--body-copy);
+.spotlight-edge:focus-visible .edge-medallion {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+/* Touch screens have no hover: they swipe instead. */
+@media (hover: none) {
+  .spotlight-edge {
+    display: none;
+  }
+}
+@media (hover: hover) {
+  .feature-content {
+    padding-inline: 74px;
+  }
 }
 
 /* The next screening as a printed admission ticket: punched corners, a double
@@ -797,24 +923,51 @@ watch(() => state.user?.userId, load);
     grid-template-columns: minmax(0, 1fr) 250px;
   }
 }
+/* Mid-sized screens: a narrower text block and title, so the people stay clear of it. */
+@media (min-width: 901px) and (max-width: 1250px) {
+  .feature-copy {
+    width: min(100%, 300px);
+  }
+  .feature-content h1 {
+    font-size: calc(48px * var(--title-scale, 1));
+  }
+}
 @media (max-width: 900px) {
   .lobby-grid {
     grid-template-columns: minmax(0, 1fr);
   }
-  /* Narrow screens: the still sits above the title and fades down into the card. */
+  /* Narrow screens: the whole still sits above the text and fades down into the card. */
   .feature-backdrop {
     inset: 0 0 auto;
-    width: 100%;
-    height: 320px;
-    -webkit-mask-image: linear-gradient(180deg, #000 45%, transparent 100%);
-    mask-image: linear-gradient(180deg, #000 45%, transparent 100%);
+    aspect-ratio: 16 / 9;
+  }
+  .feature-backdrop img.side-left,
+  .feature-backdrop img.side-right {
+    -webkit-mask-image: linear-gradient(180deg, #000 55%, transparent 100%);
+    mask-image: linear-gradient(180deg, #000 55%, transparent 100%);
   }
   .feature-film {
     min-height: 0;
-    padding-top: 230px;
+    padding-top: calc(56.25% - 48px);
+  }
+  .feature-copy,
+  .feature-copy.side-right {
+    translate: none;
+    width: auto;
+    justify-self: stretch;
+    text-align: left;
+  }
+  .feature-copy.side-right .feature-meta,
+  .feature-copy.side-right .feature-kicker {
+    justify-content: flex-start;
   }
   .feature-content h1 {
     margin-top: 16px;
+  }
+  /* The arrows cover only the photo band (16:9 of the frame width), never the text. */
+  .spotlight-edge {
+    bottom: auto;
+    height: calc(56.25vw - 70px);
   }
 }
 @media (max-width: 800px) {
@@ -843,12 +996,6 @@ watch(() => state.user?.userId, load);
   }
 }
 @media (max-width: 600px) {
-  .feature-backdrop {
-    height: 250px;
-  }
-  .feature-film {
-    padding-top: 170px;
-  }
   .feature-content {
     padding: 22px 20px 26px;
   }
@@ -862,12 +1009,8 @@ watch(() => state.user?.userId, load);
   .admission-stub {
     padding: 18px 20px 14px;
   }
-  .reel-frames button {
-    width: 54px;
-    height: 36px;
-  }
-  .reel-count {
-    display: none;
+  .marker {
+    width: 34px;
   }
 }
 </style>

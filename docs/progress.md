@@ -82,3 +82,26 @@ Plan: docs/superpowers/plans/2026-11-11-local-app.md
 - Watched dates earlier than the film's release are rejected (server and date picker). Database-level rule violations (check constraints, missing or referenced rows) return 400/409 with a clear message instead of 500.
 - Home: all spotlight texts and ticket texts share one grid cell each, so the card and ticket keep the height of the longest film (616px at 1440, 555px at 1100, constant at 390).
 - Evidence: 18/18 API and schema tests (new: release-date rule; every film scheduled, idempotent, no same-hall overlap, new seats bookable), 8/8 browser tests, production build.
+
+## 2026-11-18 Spotlight motion and controls
+
+- The spotlight turns every 12 s (first 7 s, lengthened so the motion stays in the background); the current marker's fill animation is the timer, so pausing the animation pauses the turn. Paused while the pointer or focus is on the spotlight or ticket, with the pause button, and (via the reduced-motion rule) never turns for visitors who reduce motion. Live-region announcements only while paused.
+- The thumbnail reel left the frame: hidden edge bands bring up gilt arrows on hover or keyboard focus; hairline markers, count and pause sit below the frame (above the ticket in one column); swipe on touch screens, where the edge bands are hidden.
+- Titles allow 16ch, so every featured title fits two lines; the frame stays 500px for all six films at 1440px.
+- Evidence: scripted check (turned after 7 s before the change, stays while hovered, arrow opacity 0 mid-frame and 1 at the edge, fixed size), 18/18 API and 8/8 browser tests.
+
+## 2026-11-18 Spotlight timer fix and split layout
+
+- Rotation stopped after any click on an arrow: focus stayed inside the spotlight and focus paused it. Replaced the animation-driven timer with a 7 s timeout that pauses only for hover or keyboard (focus-visible) focus, restarts after every change, skips hidden tabs and reduced motion. Markers and pause button removed. Previous/next wrap around in both directions.
+- Layout: text overlapped faces in several stills (Rear Window, Roman Holiday) and the Budapest synopsis sat on the bright facade. The frame is now split: text panel `max(360px, 50%)` on the left with vertically centred copy, the still on the right reaching 110px under the panel and fading out across that seam. Per-film `spot` crops in `film-programme.js` keep the people on the photo side; the film page keeps its own `focus` crops. On narrow screens the photo is a band above the text and the arrows cover only that band.
+- Evidence: scripted check (turns at 7 s and 14 s, keeps turning after a mouse click once the pointer leaves, holds while hovered, Next from the last film shows the first and Previous goes back), all six films reviewed at 1440, 1100 and 390px, 18/18 API and 8/8 browser tests (spotlight test now uses the arrows and checks wrapping).
+
+## 2026-11-18 Spotlight back to the fading frame, with films chosen for it
+
+- The split text/photo frame read as a card; returned to the original frame: the still covers the right 72% (64% at 901–1250px) and fades into the dark behind the text; text column `min(600px, 66%)` (56% at mid widths), titles two lines, text centred vertically. Hidden edge arrows, 7 s looping rotation and swipe unchanged.
+- Rather than trade crops against text, the spotlight now uses films whose stills keep their people on the right: Casablanca, Rear Window (new still: Jeff with his camera), In the Mood for Love, Singin' in the Rain, Roman Holiday and La La Land (new still: the dance above Los Angeles). The Grand Budapest Hotel left the spotlight (its stills are full-width or symmetrical); Breakfast at Tiffany's was tried and dropped because Holly sits mid-frame. All six have member reviews and are guaranteed screenings by `scheduleEveryFilm`.
+- Evidence: all six reviewed at 1440, 1100 and 390px with no text over a face; 18/18 API and 8/8 browser tests.
+- Follow-up: the still now fills the whole frame (about 16:9, so it is barely cropped) and fades towards the side holding the text; each spotlight film sets `side` (Casablanca and Singin' in the Rain put text on the right) and `frameX` (which part stays in view on narrower frames). Text block 360px (300px and 48px titles at 901–1250px). Reviewed all six at 1440, 1100 and 390px.
+- Per-film tuning: `titleScale`/`lift` (Casablanca 1.14 and 14px, applied with `translate` so the frame keeps its size) and `quote` (La La Land shows the first sentence of its most-liked member review, loaded from `/reviews?movieId=`; omitted if none). Frame stays 503px at 1440. Baskervville italic added for the quote.
+- Roman Holiday: a quote was tried but grew the frame (503 to 577px, as its text is already among the tallest), so it got only a slight `titleScale` 1.03 and `lift` (10px, later 16px). Frame unchanged.
+- La La Land's quote is now a line from the film (`quote: { line, by }` in `film-programme.js`), “Here’s to the fools who dream.” credited to Mia Dolan; the member-review loading was removed. Frame unchanged.
