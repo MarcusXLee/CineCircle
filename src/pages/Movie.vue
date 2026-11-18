@@ -334,6 +334,7 @@ async function saveToList() {
             v-model="watchDate"
             type="date"
             required
+            :min="data.movie.releaseDate || undefined"
             :max="todayHK()" /></label
         ><button class="button primary full" :disabled="busy">
           Save watched date</button

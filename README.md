@@ -115,7 +115,7 @@ All accounts below use the password **`Cinema2026!`**. You can also register a n
 | rosa     | Regular                           |
 | sam      | Regular                           |
 
-The catalogue has 22 films: twelve recent titles and ten classic Hollywood films (Casablanca, Singin' in the Rain, Roman Holiday, Vertigo, Some Like It Hot, Sunset Boulevard, Breakfast at Tiffany's, Rear Window, The Godfather and It's a Wonderful Life). A database created with the earlier 12-film catalogue receives the new films and the four newer members (eleanor, theo, rosa, sam) on its next start; nothing it already holds is changed. Existing screenings stay as they are, and the new films join the schedule as new days are added.
+The catalogue has 22 films: twelve recent titles and ten classic Hollywood films (Casablanca, Singin' in the Rain, Roman Holiday, Vertigo, Some Like It Hot, Sunset Boulevard, Breakfast at Tiffany's, Rear Window, The Godfather and It's a Wonderful Life). A database created with the earlier 12-film catalogue receives the new films and the four newer members (eleanor, theo, rosa, sam) on its next start; nothing it already holds is changed. Existing screenings stay as they are, and each new film gets morning screenings straight away (see below).
 
 The sign-in dialog includes **Continue as Mia**. Mia's profile starts with watched films, public/private lists and a watchlist. Passwords are stored as salted scrypt hashes. Login sessions are held in server memory; after an API restart, sign in again. Your reviews, lists, watching records, follows and tickets persist in MySQL.
 
@@ -146,9 +146,9 @@ The schema has no poster, director or pre-booking price fields. Therefore:
 - `discount.price` is interpreted as a fixed HKD reduction. The seeded **Weekday matinee** offer takes HK$8 off screenings before 17:00 on Monday–Friday. Eligibility is local configuration, because the schema has no applicability columns.
 - The best eligible offer is selected; offers do not stack. Server calculation is authoritative. Client-supplied prices are ignored. `ticket.price` stores the final amount; an applied fixed offer is associated through `ticket_discount`.
 - Seat selection in the browser is not a hold. On confirmation, the backend locks the screening/seats, rechecks availability, prices and membership, writes all tickets and statuses, then commits. A failed selection leaves no partial booking.
-- Sample screenings are generated for the next ten days on initial seeding. Existing screenings, tickets and user data are retained on later starts and never moved. Each setup (`npm run setup`, `npm run dev`, or starting the Docker app) adds the standard schedule to any of the next ten days that has no screenings, so an older database stays bookable.
+- Screening dates are relative to today, not fixed. Initial seeding schedules the next ten days. On every start, and every hour while the site is running, any of the next ten days without screenings receives the standard schedule (13:00, 17:00 and 21:00 in each hall), and any film with fewer than two upcoming screenings gets a morning show that ends by 12:45, so it never overlaps the 13:00 screening in that hall. Past screenings simply stop being listed; existing screenings, tickets and user data are never moved. A demo on any later date therefore shows the following ten days.
 
-All screening times and watched dates use Hong Kong time. Seed release dates record the film's release **year** with January 1 as a fixture date; the interface deliberately shows the year only.
+All screening times and watched dates use Hong Kong time. Seed release dates record the film's release **year** with January 1 as a fixture date; the interface deliberately shows the year only. A watched date cannot be earlier than the film's release date.
 
 ## Verify
 

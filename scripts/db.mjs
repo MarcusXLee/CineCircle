@@ -6,7 +6,7 @@ import { initializeDatabase, createPool } from "../server/db.mjs";
 import {
   seedDatabase,
   extendCatalog,
-  extendSchedule,
+  refreshSchedule,
 } from "../server/seed.mjs";
 
 const startHint = {
@@ -77,8 +77,10 @@ export async function setupDatabase(options) {
     const { films, members } = await extendCatalog(pool);
     if (films) console.log(`Added ${films} film(s) to the catalogue.`);
     if (members) console.log(`Added ${members} demo member(s).`);
-    const days = await extendSchedule(pool);
+    const { days, showings } = await refreshSchedule(pool);
     if (days) console.log(`Added screenings for ${days} upcoming day(s).`);
+    if (showings)
+      console.log(`Added ${showings} screening(s) so every film is showing.`);
   } finally {
     await pool.end();
   }

@@ -181,6 +181,19 @@ export function createApp({ pool, sessionSecret }) {
       status = 409;
       message = "That item already exists. Refresh and try again.";
     }
+    // Rules the database enforces itself, reached only if a request slips past the API checks.
+    if (error.code === "ER_CHECK_CONSTRAINT_VIOLATED") {
+      status = 400;
+      message = "That value is not allowed. Check it and try again.";
+    }
+    if (
+      error.code === "ER_NO_REFERENCED_ROW_2" ||
+      error.code === "ER_ROW_IS_REFERENCED_2"
+    ) {
+      status = 409;
+      message =
+        "That item has changed or no longer exists. Refresh and try again.";
+    }
     if (
       error.code === "ER_LOCK_DEADLOCK" ||
       error.code === "ER_LOCK_WAIT_TIMEOUT"

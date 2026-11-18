@@ -1,6 +1,7 @@
 import { createPool } from "./db.mjs";
 import { createApp } from "./app.mjs";
 import { sessionSecret } from "./config.mjs";
+import { refreshSchedule } from "./seed.mjs";
 const pool = createPool();
 await pool.query("SELECT 1");
 const host = process.env.HOST || "127.0.0.1",
@@ -11,6 +12,16 @@ export const server = createApp({
 }).listen(port, host, () =>
   console.log(`CineCircle API: http://${host}:${port}`),
 );
+// Screenings are dated relative to today. While the site keeps running, top up the
+// programme every hour so it never runs out of upcoming days or leaves a film unscheduled.
+const refresh = setInterval(
+  () =>
+    refreshSchedule(pool).catch((error) =>
+      console.error("Schedule refresh failed:", error.message),
+    ),
+  60 * 60 * 1000,
+);
+refresh.unref();
 server.on("error", (error) => {
   console.error(
     error.code === "EADDRINUSE"
@@ -22,6 +33,7 @@ server.on("error", (error) => {
 for (const signal of ["SIGINT", "SIGTERM"])
   process.on(signal, () =>
     server.close(async () => {
+      clearInterval(refresh);
       await pool.end();
       process.exit(0);
     }),

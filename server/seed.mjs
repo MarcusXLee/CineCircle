@@ -3,8 +3,10 @@ import { hashPassword } from "./auth.mjs";
 import { transaction } from "./db.mjs";
 
 const hours = [13, 17, 21];
-// Inserts a screening `day` days from today, with a status row for every seat in its hall.
+// Inserts a screening `day` days from today at `hour` (13 or "09:45"), with a status row
+// for every seat in its hall.
 async function addScreening(c, screeningId, film, cinemaId, hallId, day, hour) {
+  const time = typeof hour === "number" ? `${hour}:00:00` : `${hour}:00`;
   const [result] = await c.execute(
     "INSERT INTO screening VALUES(?,?,?,?,TIMESTAMP(DATE_ADD(CURRENT_DATE,INTERVAL ? DAY),?),DATE_ADD(TIMESTAMP(DATE_ADD(CURRENT_DATE,INTERVAL ? DAY),?),INTERVAL ? MINUTE))",
     [
@@ -13,9 +15,9 @@ async function addScreening(c, screeningId, film, cinemaId, hallId, day, hour) {
       cinemaId,
       hallId,
       day,
-      `${hour}:00:00`,
+      time,
       day,
-      `${hour}:00:00`,
+      time,
       film.duration,
     ],
   );
@@ -420,4 +422,56 @@ export async function extendSchedule(pool) {
     }
     return added;
   });
+}
+
+// Gives every film at least two screenings in the next ten days. Films short of that get a
+// morning show that ends by 12:45, before the 13:00 screening, in a hall whose morning is
+// free, so no screening overlaps another in the same hall.
+export async function scheduleEveryFilm(pool, perFilm = 2) {
+  return transaction(pool, async (c) => {
+    const [halls] = await c.query(
+      "SELECT cinema_id AS cinemaId,hall_id AS hallId FROM hall ORDER BY cinema_id,hall_id FOR UPDATE",
+    );
+    const [movies] = await c.query(
+      `SELECT m.movie_id AS id,m.duration,
+      (SELECT COUNT(*) FROM screening s WHERE s.movie_id=m.movie_id AND s.start_time>NOW()
+        AND s.start_time<DATE_ADD(CURRENT_DATE,INTERVAL 11 DAY)) AS upcoming
+      FROM movie m ORDER BY upcoming,m.movie_id`,
+    );
+    const [mornings] = await c.query(
+      `SELECT DISTINCT DATEDIFF(start_time,CURRENT_DATE) AS day,cinema_id AS cinemaId,hall_id AS hallId
+      FROM screening WHERE start_time>=CURRENT_DATE AND HOUR(start_time)<13`,
+    );
+    const used = new Set(
+      mornings.map((m) => `${m.day}/${m.cinemaId}/${m.hallId}`),
+    );
+    const free = [];
+    for (let day = 1; day <= 10; day++)
+      for (const hall of halls)
+        if (!used.has(`${day}/${hall.cinemaId}/${hall.hallId}`))
+          free.push({ day, ...hall });
+    let added = 0;
+    for (const film of movies) {
+      const latest = 12 * 60 + 45 - film.duration;
+      if (latest < 9 * 60) continue;
+      const start = Math.floor(latest / 15) * 15;
+      const time = `${String(Math.floor(start / 60)).padStart(2, "0")}:${String(start % 60).padStart(2, "0")}`;
+      const days = new Set();
+      for (let need = perFilm - Number(film.upcoming); need > 0; need--) {
+        const slot = free.findIndex((f) => !days.has(f.day));
+        if (slot < 0) break;
+        const [{ day, cinemaId, hallId }] = free.splice(slot, 1);
+        days.add(day);
+        await addScreening(c, null, film, cinemaId, hallId, day, time);
+        added++;
+      }
+    }
+    return added;
+  });
+}
+
+// Keeps the programme current: fills empty days, then makes sure every film is showing.
+export async function refreshSchedule(pool) {
+  const days = await extendSchedule(pool);
+  return { days, showings: await scheduleEveryFilm(pool) };
 }

@@ -239,10 +239,16 @@ export function social(pool) {
         }
         await transaction(pool, async (c) => {
           const [[m]] = await c.execute(
-            "SELECT movie_id FROM movie WHERE movie_id=?",
+            "SELECT movie_id,release_date FROM movie WHERE movie_id=?",
             [movieId],
           );
           if (!m) throw new HttpError(404, "Film not found.");
+          // A film cannot have been watched before it was released.
+          if (date && m.release_date && date < m.release_date)
+            throw new HttpError(
+              400,
+              `Choose a date on or after the film’s release (${m.release_date.slice(0, 4)}).`,
+            );
           if (method === "delete")
             await c.execute(
               `DELETE FROM ${table} WHERE user_id=? AND movie_id=?`,

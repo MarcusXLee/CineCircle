@@ -75,3 +75,10 @@ Plan: docs/superpowers/plans/2026-11-11-local-app.md
 - Booking: the film still above the seat map is replaced by a drawn gilded screen.
 - Wordmark: "CineCircle" in Cinzel with gilded rings, shared by header and footer (`BrandMark.vue`). Page titles use Baskervville.
 - Tests updated for the larger catalogue and the spotlight (switch by click and arrow key). Evidence: 17/17 API and schema tests, 8/8 browser tests; `docker compose up --build` on a fresh volume (22 films, 8 members) and an app restart keeping data, on spare ports, then removed.
+
+## 2026-11-18 Database review follow-up and fixed spotlight size
+
+- Schedule: `refreshSchedule` (fill empty days, then `scheduleEveryFilm`) runs on every start and hourly while the server runs, so a long-running site keeps ten upcoming days. Films with fewer than two upcoming screenings get a morning show ending by 12:45 in a hall whose morning is free; covers films added to an older database. Simulated a database seeded a week earlier: the refresh restored ten upcoming days and every film is showing.
+- Watched dates earlier than the film's release are rejected (server and date picker). Database-level rule violations (check constraints, missing or referenced rows) return 400/409 with a clear message instead of 500.
+- Home: all spotlight texts and ticket texts share one grid cell each, so the card and ticket keep the height of the longest film (616px at 1440, 555px at 1100, constant at 390).
+- Evidence: 18/18 API and schema tests (new: release-date rule; every film scheduled, idempotent, no same-hall overlap, new seats bookable), 8/8 browser tests, production build.

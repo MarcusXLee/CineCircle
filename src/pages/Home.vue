@@ -39,9 +39,9 @@ const orders = [
 ];
 const featured = computed(() => spotlight.value[current.value]);
 // The ticket follows the film in the spotlight: its next screening, if it has one.
-const next = computed(() =>
-  screenings.value.find((s) => s.movieId === featured.value?.movieId),
-);
+const nextFor = (film) =>
+  screenings.value.find((s) => s.movieId === film?.movieId);
+const next = computed(() => nextFor(featured.value));
 const publicList = computed(() => lists.value[0]);
 let shelfRequest = 0;
 async function load() {
@@ -138,23 +138,38 @@ watch(() => state.user?.userId, load);
                 ><Aperture :size="14" aria-hidden="true" /></span
               >Film spotlight</span
             >
-            <h1>{{ featured.title }}</h1>
-            <div class="feature-meta">
-              <span v-if="featured.director">{{ featured.director }}</span
-              ><span v-if="featured.year">{{ featured.year }}</span
-              ><span>{{ movieTime(featured.duration) }}</span
-              ><span v-if="featured.rating != null" class="rating"
-                ><Star :size="13" fill="currentColor" aria-hidden="true" />{{
-                  Number(featured.rating).toFixed(1)
-                }}</span
+            <!-- Every film's text shares one grid cell, so the card keeps the height of the
+                 longest one and does not jump when the spotlight changes. -->
+            <div class="feature-stack">
+              <div
+                v-for="(film, index) in spotlight"
+                :key="film.movieId"
+                class="feature-copy"
+                :class="{ current: index === current }"
+                :aria-hidden="index !== current"
+                :inert="index !== current"
               >
+                <h1>{{ film.title }}</h1>
+                <div class="feature-meta">
+                  <span v-if="film.director">{{ film.director }}</span
+                  ><span v-if="film.year">{{ film.year }}</span
+                  ><span>{{ movieTime(film.duration) }}</span
+                  ><span v-if="film.rating != null" class="rating"
+                    ><Star
+                      :size="13"
+                      fill="currentColor"
+                      aria-hidden="true"
+                    />{{ Number(film.rating).toFixed(1) }}</span
+                  >
+                </div>
+                <p v-if="film.description">{{ film.description }}</p>
+                <RouterLink
+                  :to="`/films/${film.movieId}`"
+                  class="button primary"
+                  >Film details <ArrowUpRight :size="18" aria-hidden="true"
+                /></RouterLink>
+              </div>
             </div>
-            <p v-if="featured.description">{{ featured.description }}</p>
-            <RouterLink
-              :to="`/films/${featured.movieId}`"
-              class="button primary"
-              >Film details <ArrowUpRight :size="18" aria-hidden="true"
-            /></RouterLink>
           </div>
           <div class="spotlight-reel">
             <button
@@ -203,40 +218,51 @@ watch(() => state.user?.userId, load);
               <span class="admission-house">CineCircle</span>
               <span class="admission-admit">Admit one</span>
             </header>
-            <p class="admission-kind">
-              {{ next ? "Next screening" : "Not yet scheduled" }}
-            </p>
-            <div class="admission-film">
-              <img :src="featured?.poster" alt="" width="58" height="87" />
-              <div>
-                <h2>{{ featured?.title }}</h2>
-                <span v-if="featured"
-                  >{{ movieTime(featured.duration) }} ·
-                  {{ featured.year }}</span
-                >
+            <div class="admission-stack">
+              <div
+                v-for="(film, index) in spotlight"
+                :key="film.movieId"
+                class="admission-copy"
+                :class="{ current: index === current }"
+                :aria-hidden="index !== current"
+              >
+                <p class="admission-kind">
+                  {{ nextFor(film) ? "Next screening" : "Not yet scheduled" }}
+                </p>
+                <div class="admission-film">
+                  <img :src="film.poster" alt="" width="58" height="87" />
+                  <div>
+                    <h2>{{ film.title }}</h2>
+                    <span
+                      >{{ movieTime(film.duration) }} · {{ film.year }}</span
+                    >
+                  </div>
+                </div>
+                <dl v-if="nextFor(film)" class="admission-fields">
+                  <div>
+                    <dt>Date</dt>
+                    <dd>{{ dateLabel(nextFor(film).startTime) }}</dd>
+                  </div>
+                  <div>
+                    <dt>Time</dt>
+                    <dd class="admission-time">
+                      {{ timeLabel(nextFor(film).startTime) }}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Cinema</dt>
+                    <dd>{{ nextFor(film).cinemaName }}</dd>
+                  </div>
+                  <div>
+                    <dt>Hall</dt>
+                    <dd>{{ nextFor(film).hallName }}</dd>
+                  </div>
+                </dl>
+                <p v-else class="admission-empty">
+                  This film has no screening in the next ten days.
+                </p>
               </div>
             </div>
-            <dl v-if="next" class="admission-fields">
-              <div>
-                <dt>Date</dt>
-                <dd>{{ dateLabel(next.startTime) }}</dd>
-              </div>
-              <div>
-                <dt>Time</dt>
-                <dd class="admission-time">{{ timeLabel(next.startTime) }}</dd>
-              </div>
-              <div>
-                <dt>Cinema</dt>
-                <dd>{{ next.cinemaName }}</dd>
-              </div>
-              <div>
-                <dt>Hall</dt>
-                <dd>{{ next.hallName }}</dd>
-              </div>
-            </dl>
-            <p v-else class="admission-empty">
-              This film has no screening in the next ten days.
-            </p>
           </div>
           <div class="admission-stub">
             <RouterLink
@@ -382,6 +408,24 @@ watch(() => state.user?.userId, load);
   padding: clamp(30px, 3.2vw, 46px) clamp(26px, 3vw, 42px) 44px;
   max-width: 600px;
 }
+.feature-stack,
+.admission-stack {
+  display: grid;
+}
+.feature-copy,
+.admission-copy {
+  grid-area: 1 / 1;
+  visibility: hidden;
+  opacity: 0;
+  transition:
+    opacity 0.45s ease,
+    visibility 0.45s;
+}
+.feature-copy.current,
+.admission-copy.current {
+  visibility: visible;
+  opacity: 1;
+}
 .feature-kicker {
   display: inline-flex;
   align-items: center;
@@ -420,7 +464,7 @@ watch(() => state.user?.userId, load);
   gap: 5px;
   color: var(--amber);
 }
-.feature-content > p {
+.feature-copy > p {
   max-width: 44ch;
   margin: 16px 0 24px;
   font-size: 14px;
@@ -808,7 +852,7 @@ watch(() => state.user?.userId, load);
   .feature-content {
     padding: 22px 20px 26px;
   }
-  .feature-content > p {
+  .feature-copy > p {
     font-size: 13px;
     line-height: 1.55;
   }

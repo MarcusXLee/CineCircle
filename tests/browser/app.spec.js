@@ -27,7 +27,7 @@ test("discovery, movie search, detail and seat selection use real data", async (
       .getByRole("heading", { name: "The Grand Budapest Hotel", exact: true })
       .first(),
   ).toBeVisible();
-  await expect(page.locator(".admission-film h2")).toHaveText(
+  await expect(page.locator(".admission-copy.current h2")).toHaveText(
     "The Grand Budapest Hotel",
   );
   await page.keyboard.press("ArrowRight");

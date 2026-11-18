@@ -393,6 +393,54 @@ test("watched dates reject tomorrow in the Hong Kong calendar", async () => {
     (await mia.put("/api/me/watched/12").send({ date: tomorrow })).status,
     400,
   );
+  // Casablanca (1942) cannot have been watched in 1930.
+  const early = await mia
+    .put("/api/me/watched/13")
+    .send({ date: "1930-05-01" });
+  assert.equal(early.status, 400);
+  assert.match(early.body.error, /1942/);
+  assert.equal(
+    (await mia.put("/api/me/watched/13").send({ date: "1942-06-01" })).status,
+    200,
+  );
+});
+
+test("every film gets upcoming screenings without overlapping another in its hall", async () => {
+  const { scheduleEveryFilm } = await import("../server/seed.mjs");
+  // Like a film added to an older database: it has no screenings yet.
+  await pool.query(
+    "DELETE ss FROM screening_seat ss JOIN screening s USING(screening_id) WHERE s.movie_id=22",
+  );
+  await pool.query("DELETE FROM screening WHERE movie_id=22");
+  assert.equal(await scheduleEveryFilm(pool), 2);
+  assert.equal(await scheduleEveryFilm(pool), 0);
+  const [mornings] = await pool.query(
+    "SELECT TIME(start_time) AS start,TIME(end_time) AS end FROM screening WHERE movie_id=22",
+  );
+  // It's a Wonderful Life runs 130 minutes: 10:30 to 12:40, clear of the 13:00 show.
+  assert.deepEqual(
+    mornings.map((m) => m.start + "-" + m.end),
+    ["10:30:00-12:40:00", "10:30:00-12:40:00"],
+  );
+  const [[{ short }]] = await pool.query(
+    `SELECT COUNT(*) AS short FROM movie m WHERE (SELECT COUNT(*) FROM screening s
+      WHERE s.movie_id=m.movie_id AND s.start_time>NOW()
+      AND s.start_time<DATE_ADD(CURRENT_DATE,INTERVAL 11 DAY))<2`,
+  );
+  assert.equal(short, 0);
+  const [[{ overlaps }]] = await pool.query(
+    `SELECT COUNT(*) AS overlaps FROM screening a JOIN screening b
+      ON a.cinema_id=b.cinema_id AND a.hall_id=b.hall_id AND a.screening_id<b.screening_id
+      AND a.start_time<b.end_time AND b.start_time<a.end_time`,
+  );
+  assert.equal(overlaps, 0);
+  // The new screenings are bookable: every seat starts available.
+  const [[latest]] = await pool.query(
+    "SELECT screening_id AS id FROM screening ORDER BY screening_id DESC LIMIT 1",
+  );
+  const seats = (await request(app).get(`/api/screenings/${latest.id}`)).body
+    .seats;
+  assert.equal(seats.filter((x) => x.status === "available").length, 48);
 });
 
 test("unsupported and prototype-named sort modes are rejected without a server error", async () => {
