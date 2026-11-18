@@ -1,0 +1,14 @@
+node_modules
+dist
+.local
+.env
+artifacts
+test-results
+playwright-report
+tests
+docs
+*.pdf
+*.png
+**/.DS_Store
+Dockerfile
+compose.yaml

@@ -1,0 +1,44 @@
+# One-command setup: `docker compose up --build`, then open http://localhost:3001
+name: cinecircle
+
+services:
+  db:
+    image: mysql:8.4
+    command: ["--default-time-zone=+08:00", "--skip-log-bin"]
+    environment:
+      # Local demo credentials. The database port is published to this computer only.
+      MYSQL_ROOT_PASSWORD: cinecircle-root
+      MYSQL_DATABASE: cinecircle
+      MYSQL_USER: cinecircle
+      MYSQL_PASSWORD: cinecircle
+    volumes:
+      - db-data:/var/lib/mysql
+    ports:
+      # For MySQL Workbench, `npm test` or `npm run dev` on this computer (see README).
+      - "127.0.0.1:${DB_HOST_PORT:-3307}:3306"
+    healthcheck:
+      # TCP ping: only succeeds once MySQL's first-run initialization has finished.
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 3s
+      timeout: 5s
+      retries: 60
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: cinecircle
+      DB_PASSWORD: cinecircle
+      DB_NAME: cinecircle
+      HOST: 0.0.0.0
+      PORT: 3001
+    ports:
+      # Set APP_BIND=0.0.0.0 to open the site from other devices on your network.
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-3001}:3001"
+
+volumes:
+  db-data:
