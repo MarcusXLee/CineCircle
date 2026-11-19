@@ -65,7 +65,10 @@ export async function waitForDatabase({ retries = 0 } = {}) {
 export async function setupDatabase(options) {
   await waitForDatabase(options);
   const updated = await initializeDatabase();
-  if (updated) console.log(`Added ${updated} revised database constraints.`);
+  if (updated)
+    console.log(
+      `Brought the database schema up to date (${updated} change(s)).`,
+    );
   const pool = createPool();
   try {
     const seeded = await seedDatabase(pool);
@@ -74,9 +77,15 @@ export async function setupDatabase(options) {
         ? "Loaded demo movies, members, lists and screenings."
         : "Existing data retained.",
     );
-    const { films, members } = await extendCatalog(pool);
+    const { films, members, halls, comments, bookmarks } =
+      await extendCatalog(pool);
     if (films) console.log(`Added ${films} film(s) to the catalogue.`);
     if (members) console.log(`Added ${members} demo member(s).`);
+    if (halls)
+      console.log(`Moved premium seats to the centre in ${halls} hall(s).`);
+    if (comments) console.log(`Added ${comments} demo comment(s).`);
+    if (bookmarks)
+      console.log(`Added ${bookmarks} demo collection bookmark(s).`);
     const { days, showings } = await refreshSchedule(pool);
     if (days) console.log(`Added screenings for ${days} upcoming day(s).`);
     if (showings)

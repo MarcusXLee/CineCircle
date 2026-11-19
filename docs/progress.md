@@ -105,3 +105,101 @@ Plan: docs/superpowers/plans/2026-11-11-local-app.md
 - Per-film tuning: `titleScale`/`lift` (Casablanca 1.14 and 14px, applied with `translate` so the frame keeps its size) and `quote` (La La Land shows the first sentence of its most-liked member review, loaded from `/reviews?movieId=`; omitted if none). Frame stays 503px at 1440. Baskervville italic added for the quote.
 - Roman Holiday: a quote was tried but grew the frame (503 to 577px, as its text is already among the tallest), so it got only a slight `titleScale` 1.03 and `lift` (10px, later 16px). Frame unchanged.
 - La La Land's quote is now a line from the film (`quote: { line, by }` in `film-programme.js`), “Here’s to the fools who dream.” credited to Mia Dolan; the member-review loading was removed. Frame unchanged.
+
+## 2026-11-18 Concierge and printed buttons
+
+- `.button.concierge` (style.css): gilt hairline, translucent dark ground, pearl small capitals, gilt hover with the arrow easing forward; used for Film details and Sign in. Header search restyled to match (gilt hairline, gilt icon, Baskervville italic placeholder). Choose seats on the ticket stays 2D: flat plum, letter-spaced capitals, inner printed rule (outline offset), darker on hover. The lavender primary button elsewhere is unchanged.
+
+## 2026-11-18 One visual language across the site
+
+- Audit of every page (signed out and in) and the dialogs found two accents (lavender controls beside the gilt details) and two title fonts. Lavender retired: `--accent` is now champagne (#e3c995), `--accent-surface` warm dark; hard-coded lavender shades replaced (seats are plum velvet with a gilt chosen seat, community rings and the booking screen glow are gilt).
+- House style block (end of style.css): primary buttons are champagne satin in small capitals; secondary buttons are gilt hairlines; header links are small capitals with the current page in a hairline pill; genre chips and the date strip use the same pill, gilt when chosen; every h1, dialog title and empty-state heading is Baskervville; placeholders are Baskervville italic; the booking ticket's button is printed like the home ticket's.
+- Evidence: all pages and both dialogs reviewed at 1440px, home and phone menu at 390px; 18/18 API and 8/8 browser tests.
+
+## 2026-11-18 Glass pills and brass stars
+
+- Frosted glass (`--glass`, `--glass-edge`, `--glass-depth` in style.css) on every hairline pill: concierge and secondary buttons, header search, current page, genre chips. Hover brightens the glass and gilds the edge; selected pills keep a gilt edge.
+- Rating stars use a shared brass gradient (`#cc-brass`, defined once in App.vue) with a darker rim and hairline shadow.
+- Italic placeholders removed everywhere; the header search prompt is small spaced capitals.
+- Evidence: 2x close-ups of header, home hero, film page and catalogue; 18/18 API and 8/8 browser tests.
+- Stars: flat brass replaced by metal: a diagonal polished-brass gradient plus `#cc-metal` (fine horizontal brushing from fractal noise, a specular bevel lit from the upper left, a hairline drop shadow), darker rim. Toned down once so the highlight does not wash the brass out.
+- La La Land quote and credit hot-stamped: gold-foil gradient with grain clipped to the text and a debossed edge (dark above, faint light below); size, weight and italic unchanged.
+
+## 2026-11-18 Print and ink
+
+- Tickets (home, booking summary, My tickets stubs) separate pre-printed stock (plum labels, house name) from stamped details (Courier Prime, near-black, slight ink bleed); serial numbers in red; punched perforation instead of dashed tear lines; ink speckle on printed buttons. Tokens `--typewriter`, `--ink-plum`, `--ink-black`, `--ink-red`, `--ink-bleed`, `--perforation`, `--ink-speckle` in style.css. `@fontsource/courier-prime` added.
+- La La Land: credit back to plain gilt; quote foil brightened (lighter stops, softer upper shadow), same grain, size and italic.
+- Evidence: 2x captures of the home ticket at 1440/1100/390, booking ticket with two seats and member price, a booked stub, the quote; 18/18 API and 8/8 browser tests.
+- Stars: outline removed; compared bevelled brass with dark golden foil at 3x in four places (film page, poster badge, spotlight, review) and chose foil (`#cc-foil` with `#cc-foil-grain`) to match the hot-stamped quote. Brass (`#cc-brass`, `#cc-metal`) stays defined as an alternative.
+
+## 2026-11-18 Silver foil quote and wide-screen ticket
+
+- La La Land quote foil changed from gold to near-white silver (same grain, bands, size and italic).
+- From 1441px the spotlight frame grows to about 585px; the home ticket's contents now grow with it (larger poster, title, field values, time and row spacing), cutting the blank above the tear line from about 124px to about 52px at 1512–1920px. At 1440px and below the ticket is unchanged; the frame never grows.
+
+## 2026-11-18 Claret velvet and wine ink
+
+- The cold plum of the seats and ticket ink became a smoky, low-saturation claret (between muted burgundy and oxblood; terracotta rejected as it fights the champagne and cream). Tokens: `--velvet`, `--velvet-rim`, `--velvet-shadow`, `--velvet-hover`, `--velvet-text`, `--velvet-deep`, `--piping`, `--wine-ink`, `--wine-ink-deep`, `--ink-wine` (replaces `--ink-plum`). Booking ticket text moved from violet grey to warm charcoal; taken-seat hatching is warm neutral. Premium seats are deeper claret with gold piping instead of olive. The red serial number stays brighter red.
+
+## 2026-11-18 Comments, premium block, tickets in My circle
+
+- Comments: new `review_comment` table (23 tables) with FKs to review and users, a non-empty CHECK and a (review_id, create_date) index. API: list, post (locks the review), delete (comment author or review author); reviews carry `commentCount`; deleting a review deletes its comments. UI: a Comment button with count on every review card opens a thread with a posting box; signed-out visitors are sent to sign in and the box is focused after. Eight demo comments.
+- Older databases: setup creates the one known added table (anything else still counts as a foreign database), adds the demo comments once, and moves halls still on the first seat plan (row F premium) to the current one. Simulated on a database without the table and with row F premium: 1 schema change, 2 halls, 8 comments; second run changes nothing.
+- Premium seats are the middle four of rows D–F (12 per hall), black velvet with gold piping.
+- My circle has a Tickets tab (upcoming tickets, soonest first; link to the full history). `TicketCard.vue` is shared with My tickets.
+- ER: `CineCircle_ER_updated.png` = the supplied diagram plus a panel (same notation and colours) with Comment, Posts (to User) and On (to Review), total participation on the Comment side. The supplied PNG is unchanged.
+- Evidence: 20/20 API and schema tests (new: comment rules, premium layout, upgrade creates the table), 9/9 browser tests (new: post and remove a comment, Tickets tab).
+
+## 2026-11-18 Notification centre and following feed
+
+- Notifications are derived, not stored: `server/routes/notifications.mjs` gathers comments on your reviews, replies after your comment in other conversations, follows, ticket bookings (one per screening and booking minute) and reminders (screenings you hold tickets for that start within the hour, dated an hour before) with one UNION ALL query. `users.notifications_read_at` (new column; older databases get it on setup) marks what is unread. Opening the panel marks all read.
+- Header bell (`NotificationBell.vue`): gilt unread count, glass panel with medallion icons, quoted text and relative times; checks every 45 s and on focus; new comments, replies, follows and reminders pop up as a toast (bookings do not, the booking page confirms them). Comment links open the film page with that review's conversation open (`?thread=`).
+- Community feed: Everyone / People you follow (`/reviews?following=1`, signed in).
+- ER: User gains `notifications_read_at`; no new entity. `CineCircle_ER_updated.png` replaces the earlier comments-only file.
+- Evidence: 22/22 API and schema tests (new: every notification kind, own comments excluded, read state, following feed, upgrade adds the column), 10/10 browser tests (new: bell count, panel, Escape returns focus, following feed); a comment posted while the page was open popped up as a toast.
+
+## 2026-11-18 Replies, comment likes, bookmarked collections
+
+- Conversations nest to any depth: `review_comment.parent_comment_id` with a composite foreign key keeping a reply under its parent's review. The thread (`CommentThread.vue`) shows two layers at a time; opening a reply makes it the focus, Back returns a level. Notifications link straight to the right level (`?thread=&comment=`), using a recursive path query.
+- Comment likes (`comment_like`), not on your own comments. Removing a comment removes its replies and their likes in one transaction (recursive subtree query).
+- Following now matters in conversations (followed members' replies first, tagged) and in notifications (their new reviews, only those written after the follow).
+- Remove is a bin icon beside Like and Reply.
+- Collections can be bookmarked (`list_bookmark`, composite foreign key to film_list); public browse ranks by bookmarks; bookmarked collections appear under Saved in My circle.
+- Notifications: comment (top-level), reply (direct replies to you), like, review-like, review, follow, ticket, reminder. "A reply in a conversation you joined" was dropped as too noisy once threads nest.
+- ER: Comment Replies_to Comment; User Likes Comment (like_date); User Bookmarks Film_List (bookmark_date). 25 tables.
+- Evidence: 26/26 API and schema tests (new: replies at depth, cross-review reply rejected by SQL, likes, subtree removal, followed-first order, bookmarks incl. privacy and deletion, review notifications, upgrade from the first comments release) and 10/10 browser tests (reply, focus, back, bin with confirmation, Saved tab and bookmark toggle).
+
+### Review of this round (fixes)
+
+- A notification link to a film page that was already open did nothing (the card only read the address when it first appeared). Cards now follow address changes, and the conversation reopens at the linked comment.
+- A link to a review beyond the first ten on its film page found nothing. That review is now fetched (`/reviews?reviewId=`) and shown first, kept apart from the paged list so "Show more reviews" neither skips nor repeats one.
+- An open conversation kept the previous member's likes, following tags and order after signing in or out; it now reloads. Liking while signed out likes after sign-in and shows the true count.
+- A link naming a comment from another review is ignored (the conversation opens at the top).
+- The Saved tab counted only the first page; `/me/bookmarks` now returns `total`. Saved lists have a stable order for paging.
+- Schema upgrade steps are checked one by one (column, key, constraint), so an upgrade interrupted between steps finishes on the next start.
+- Deleting a review now says its conversation goes with it.
+- Evidence: 26/26 API and schema tests, 11/11 browser tests; the new browser test fails without the address-change fix.
+
+### Sign-in prompts (follow-up)
+
+- Regression fixed: moving the conversation into `CommentThread.vue` had dropped the review `like` function from `ReviewCard.vue`, so review Like buttons did nothing. Restored; a browser test now likes a review (and fails on page errors).
+- Every action that needs an account asks a signed-out visitor to sign in, then finishes it: liking a review or comment, replying, commenting, following, the following feed, bookmarking, watchlist, watched date, review, adding to a list, booking. Reply now asks straight away (it used to open the comment with only a sign-in link). Opening My circle or My tickets signed out opens the sign-in dialog. A request the server rejects for an ended session (sessions live in server memory) also opens it.
+- Following the same notification again, after closing that conversation, reopens it (the address does not change, so the bell tells the page directly).
+- An open conversation shows only its latest load, so signing in while a comment opens cannot show the wrong level.
+- Evidence: 26/26 API and schema tests, 13/13 browser tests.
+
+### New list from a film page
+
+- The film page's "Add to a list" dialog has a New list option (name, private or public); it creates the list with the film already in it. `POST /lists` takes an optional `movieId` and adds it in the same transaction, so an unknown film leaves no empty list. With no lists yet, the dialog opens straight on the new-list form.
+- Evidence: 27/27 API and schema tests, 14/14 browser tests.
+
+### Bug screening (browser walk-through, signed out and signed in)
+
+- Walked through in a real browser against fresh demo data, recording page errors, console errors and failed requests: every page signed out; every account action signed out (each opened sign-in); reviews (publish, invalid rating, edit, delete with its conversation; counts on the film, Community and My circle); comments (post, like/unlike persisted across reload, remove, reply four levels, Back, author removing another's comment with its reply, removing a focused comment); watchlist and watched (film page and My circle agree); lists (new from film page, no duplicate add, add/reorder/remove on the list page, make public, delete); bookmarks (Saved tab, Community count, ranking, own list has none); follow/unfollow counts; sign out. No errors beyond the expected 404s for a private list and an unknown member.
+- Notification centre, driven with a second member acting live, at desktop and phone width. Fixed:
+  - Opening the panel marked everything up to "now" as read although the list could be 45 s old, so something arriving in between was never shown as new. Opening now refreshes the list and marks read only up to the newest item shown (`POST /me/notifications/read {upTo}`; the mark never moves back or past now).
+  - Items arriving while the panel was open brought the badge back after closing; they are now marked read when shown, and do not pop up while the panel is open.
+  - A screening booked less than an hour before it starts had its reminder dated before the booking, so it could count as already read and never pop up. Reminders are now dated no earlier than the booking.
+  - Following again (after unfollowing) never popped up: the bell recognised it by kind, item and person. The key now includes the time.
+  - Times are kept to the second, so an item arriving in the same second as the newest one shown was treated as read. The bell remembers which items it showed from that second, and others from it still count as new.
+- Evidence: 28/28 API and schema tests (new: read up to the newest seen, never backwards, re-follow, late reminder), 14/14 browser tests, and the scripted walk-through at 1440 px and 390 px passing repeatedly.

@@ -9,8 +9,17 @@ import {
   Sparkles,
   Ticket,
   Film,
+  ArrowUpRight,
 } from "@lucide/vue";
-import { state, api, notify, displayName, dateLabel, openAuth } from "../api";
+import {
+  state,
+  api,
+  notify,
+  displayName,
+  dateLabel,
+  parseDate,
+  openAuth,
+} from "../api";
 import PosterCard from "../components/PosterCard.vue";
 import ListCard from "../components/ListCard.vue";
 import ListEditor from "../components/ListEditor.vue";
@@ -18,9 +27,14 @@ import ReviewCard from "../components/ReviewCard.vue";
 import ReviewEditor from "../components/ReviewEditor.vue";
 import Tabs from "../components/Tabs.vue";
 import MoreButton from "../components/MoreButton.vue";
+import TicketCard from "../components/TicketCard.vue";
 const router = useRouter(),
   route = useRoute(),
-  tab = ref(route.query.tab === "lists" ? "lists" : "watchlist"),
+  tab = ref(
+    ["lists", "saved", "tickets"].includes(route.query.tab)
+      ? route.query.tab
+      : "watchlist",
+  ),
   data = ref(null),
   loading = ref(true),
   error = ref(""),
@@ -34,17 +48,29 @@ async function load() {
   }
   loading.value = true;
   try {
-    const [lib, lists, profile] = await Promise.all([
+    const [lib, lists, saved, profile, tickets] = await Promise.all([
       api("/me/library"),
       api("/me/lists"),
+      api("/me/bookmarks"),
       api("/users/" + state.user.userId),
+      api("/me/tickets"),
     ]);
     data.value = {
       ...lib,
+      // Upcoming tickets, soonest first; the full history stays on My tickets.
+      tickets: tickets.tickets
+        .filter((t) => parseDate(t.startTime) > new Date())
+        .sort((a, b) => a.startTime.localeCompare(b.startTime)),
       lists: lists.lists,
+      saved: saved.lists,
+      savedCount: saved.total,
       reviews: profile.reviews,
       profile: profile.profile,
-      more: { lists: lists.more, reviews: profile.more.reviews },
+      more: {
+        lists: lists.more,
+        saved: saved.more,
+        reviews: profile.more.reviews,
+      },
     };
     error.value = "";
   } catch (e) {
@@ -54,6 +80,12 @@ async function load() {
   }
 }
 watch(() => state.user?.userId, load, { immediate: true });
+// Arriving signed out opens the sign-in dialog; this page fills in once signed in.
+watch(
+  () => state.ready,
+  (ready) => ready && !state.user && openAuth(),
+  { immediate: true },
+);
 async function logout() {
   try {
     await api("/auth/logout", { method: "POST" });
@@ -126,8 +158,10 @@ function newListSaved(list) {
             name: 'Watchlist',
             count: data?.watchlist.length,
           },
+          { key: 'tickets', name: 'Tickets', count: data?.tickets.length },
           { key: 'watched', name: 'Watched', count: data?.watched.length },
           { key: 'lists', name: 'My lists', count: data?.profile.listCount },
+          { key: 'saved', name: 'Saved', count: data?.savedCount },
           { key: 'reviews', name: 'Reviews', count: data?.profile.reviewCount },
         ]"
         ><div v-if="loading" class="loading-state">Finding your films…</div>
@@ -167,6 +201,29 @@ function newListSaved(list) {
               </p>
               <RouterLink to="/films" class="button secondary"
                 >Explore films</RouterLink
+              >
+            </div>
+          </div>
+          <div v-else-if="tab === 'tickets'">
+            <div class="section-heading">
+              <h2>Your next nights out.</h2>
+              <RouterLink to="/tickets" class="quiet-link"
+                >All tickets <ArrowUpRight :size="16" aria-hidden="true"
+              /></RouterLink>
+            </div>
+            <div v-if="data.tickets.length" class="tickets-list">
+              <TicketCard
+                v-for="t in data.tickets"
+                :key="t.ticketId"
+                :ticket="t"
+              />
+            </div>
+            <div v-else class="empty-state">
+              <Ticket :size="34" />
+              <h3>No upcoming tickets.</h3>
+              <p>Pick a screening and your ticket will be kept here.</p>
+              <RouterLink to="/cinemas" class="button primary"
+                >Find a screening</RouterLink
               >
             </div>
           </div>
@@ -214,6 +271,36 @@ function newListSaved(list) {
               path="/me/lists"
               :id-of="(l) => l.listId"
               label="Show more lists"
+            />
+          </div>
+          <div v-else-if="tab === 'saved'">
+            <div class="section-heading">
+              <h2>Collections worth keeping.</h2>
+              <RouterLink to="/community" class="quiet-link"
+                >Browse collections</RouterLink
+              >
+            </div>
+            <div v-if="data.saved.length" class="list-grid">
+              <ListCard
+                v-for="l in data.saved"
+                :key="`${l.userId}/${l.listId}`"
+                :list="l"
+              />
+            </div>
+            <div v-else class="empty-state">
+              <Bookmark :size="34" />
+              <h3>Nothing saved yet.</h3>
+              <p>
+                Bookmark a collection someone else made, and it will wait for
+                you here.
+              </p>
+            </div>
+            <MoreButton
+              :data="data"
+              field="saved"
+              path="/me/bookmarks"
+              :id-of="(l) => `${l.userId}/${l.listId}`"
+              label="Show more saved collections"
             />
           </div>
           <div v-else>

@@ -1,18 +1,9 @@
 <script setup>
 import { ref, computed, watch } from "vue";
-import { Ticket, MapPin, CalendarDays, ArrowUpRight } from "@lucide/vue";
-import {
-  api,
-  state,
-  notify,
-  dateLabel,
-  timeLabel,
-  parseDate,
-  money,
-  imageFallback,
-  openAuth,
-} from "../api";
+import { Ticket, ArrowUpRight } from "@lucide/vue";
+import { api, state, notify, parseDate, openAuth } from "../api";
 import Tabs from "../components/Tabs.vue";
+import TicketCard from "../components/TicketCard.vue";
 const tickets = ref([]),
   loading = ref(true),
   error = ref(""),
@@ -41,6 +32,12 @@ async function load() {
   }
 }
 watch(() => state.user?.userId, load, { immediate: true });
+// Arriving signed out opens the sign-in dialog; this page fills in once signed in.
+watch(
+  () => state.ready,
+  (ready) => ready && !state.user && openAuth(),
+  { immediate: true },
+);
 </script>
 <template>
   <div class="page-shell tickets-page">
@@ -87,36 +84,11 @@ watch(() => state.user?.userId, load, { immediate: true });
           >
         </div>
         <div v-else class="tickets-list">
-          <article v-for="t in filtered" :key="t.ticketId" class="ticket-card">
-            <RouterLink :to="`/films/${t.movieId}`" class="ticket-poster"
-              ><img :src="t.poster" :alt="t.movieTitle" @error="imageFallback"
-            /></RouterLink>
-            <div class="ticket-details">
-              <span class="ticket-status">{{
-                parseDate(t.startTime) > new Date()
-                  ? "See you at the movies"
-                  : "A movie night to remember"
-              }}</span>
-              <h2>{{ t.movieTitle }}</h2>
-              <p>
-                <MapPin :size="15" />{{ t.cinemaName
-                }}<span class="muted">{{ t.hallName }}</span>
-              </p>
-              <p>
-                <CalendarDays :size="15" />{{ dateLabel(t.startTime) }} at
-                {{ timeLabel(t.startTime) }}
-              </p>
-              <span class="small muted"
-                >Booked {{ dateLabel(t.bookingDate) }}</span
-              >
-            </div>
-            <div class="ticket-stub">
-              <Ticket :size="24" /><strong>Seat {{ t.seatNumber }}</strong
-              ><span>{{ money(t.price) }}</span
-              ><small>CC-{{ String(t.ticketId).padStart(6, "0") }}</small
-              ><span class="stub-dots" aria-hidden="true"></span>
-            </div>
-          </article></div
+          <TicketCard
+            v-for="t in filtered"
+            :key="t.ticketId"
+            :ticket="t"
+          /></div
       ></Tabs>
       <p class="local-cinema-note">
         Local demo bookings. No payment was taken. These tickets do not issue

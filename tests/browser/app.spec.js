@@ -262,3 +262,219 @@ test("tabs follow the keyboard pattern and long feeds load more", async ({
   }
   await expect(more).toHaveCount(0);
 });
+
+test("members hold a conversation under a review and find tickets in their circle", async ({
+  page,
+}) => {
+  await page.goto("/community");
+  await login(page);
+  const card = page.locator(".community-layout .review-card").first();
+  await card.getByRole("button", { name: /Comment|comments?$/ }).click();
+  const box = card.getByRole("textbox", { name: "Your comment" });
+  await box.fill("Seeing it again this weekend.");
+  await card.getByRole("button", { name: "Post", exact: true }).click();
+  await expect(card.getByText("Seeing it again this weekend.")).toBeVisible();
+  // Reply to it: the comment becomes the focus, with its replies beneath and a way back.
+  await card
+    .locator(".thread-comment", { hasText: "Seeing it again this weekend." })
+    .getByRole("button", { name: /^Reply to Mia/ })
+    .click();
+  const reply = card.getByRole("textbox", { name: "Reply to Mia" });
+  await expect(reply).toBeFocused();
+  await reply.fill("Saturday, 21:00.");
+  await card.getByRole("button", { name: "Post", exact: true }).click();
+  await expect(card.locator(".thread-main")).toContainText(
+    "Seeing it again this weekend.",
+  );
+  await expect(
+    card.locator(".thread-list").getByText("Saturday, 21:00."),
+  ).toBeVisible();
+  await card.getByRole("button", { name: "Back to the review" }).click();
+  const mine = card.locator(".thread-comment", {
+    hasText: "Seeing it again this weekend.",
+  });
+  await expect(
+    mine.getByRole("button", { name: /^Open 1 reply/ }),
+  ).toBeVisible();
+  await mine.getByRole("button", { name: /^Remove comment by Mia/ }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Delete", exact: true })
+    .click();
+  await expect(card.getByText("Seeing it again this weekend.")).toHaveCount(0);
+  // Bookmarked collections wait under Saved; a collection's page saves or unsaves it.
+  await page.goto("/circle?tab=saved");
+  await page.getByRole("link", { name: /Golden age Hollywood/ }).click();
+  const save = page.getByRole("button", { name: "Saved" });
+  await expect(save).toHaveAttribute("aria-pressed", "true");
+  await save.click();
+  await expect(page.getByRole("button", { name: "Bookmark" })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  await page.getByRole("button", { name: "Bookmark" }).click();
+  await expect(page.getByRole("button", { name: "Saved" })).toBeVisible();
+  await page.goto("/circle?tab=tickets");
+  await expect(page.getByRole("tab", { name: /^Tickets/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(
+    page.getByRole("heading", { name: "Your next nights out." }),
+  ).toBeVisible();
+});
+
+test("the bell gathers activity and the feed can follow only chosen members", async ({
+  page,
+}) => {
+  await page.goto("/community");
+  await login(page);
+  const bell = page.getByRole("button", { name: /^Notifications/ });
+  await expect(bell).toHaveAttribute("aria-label", /Notifications, \d+ new/);
+  await bell.click();
+  const panel = page.getByRole("region", { name: "Notifications" });
+  await expect(panel.getByText(/started following you/).first()).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(bell).toHaveAttribute("aria-label", "Notifications");
+  await expect(bell).toBeFocused();
+  await page.getByRole("button", { name: "People you follow" }).click();
+  const authors = page.locator(".community-layout .review-card .member-inline");
+  // Wait for the feed to switch, then check every author is someone Mia follows.
+  await expect
+    .poll(async () =>
+      (await authors.allTextContents()).every((name) =>
+        ["Alex", "Eleanor"].includes(name.trim().slice(1)),
+      ),
+    )
+    .toBe(true);
+});
+
+test("a notification link opens the conversation at the reply, also while the film page is open", async ({
+  page,
+}) => {
+  const api = async (path) => (await page.request.get(path)).json();
+  const review = (await api("/api/reviews?userId=2&movieId=11")).reviews[0];
+  const top = (
+    await api(`/api/reviews/${review.reviewId}/comments`)
+  ).comments.find((c) => c.username === "noah");
+  const reply = (
+    await api(
+      `/api/reviews/${review.reviewId}/comments?parent=${top.commentId}`,
+    )
+  ).comments[0];
+  await page.goto(
+    `/films/11?thread=${review.reviewId}&comment=${reply.commentId}`,
+  );
+  const thread = page.locator(".review-thread");
+  await expect(thread.locator(".thread-main")).toContainText("Same here.");
+  await expect(thread.locator(".thread-list")).toContainText(
+    "hands on the glass",
+  );
+  await expect(
+    thread.getByRole("button", { name: "Back to Noah's comment" }),
+  ).toBeVisible();
+  // Already on the page, with the conversation closed: a new link still opens it.
+  await page.goto("/films/11");
+  await expect(page.locator(".review-thread")).toHaveCount(0);
+  await page.evaluate(
+    (to) =>
+      document
+        .querySelector("#app")
+        .__vue_app__.config.globalProperties.$router.push(to),
+    `/films/11?thread=${review.reviewId}&comment=${top.commentId}`,
+  );
+  await expect(page.locator(".review-thread .thread-main")).toContainText(
+    "The ending got me too.",
+  );
+});
+
+test("signed-out actions ask to sign in, then finish: review likes, replies and My circle", async ({
+  page,
+}) => {
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  // Liking a review.
+  await page.goto("/films/11");
+  await page.getByRole("button", { name: "Like review by alex" }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.getByRole("button", { name: "Continue as Mia" }).click();
+  await expect(
+    page.getByRole("button", { name: "Unlike review by alex" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Unlike review by alex" }).click();
+  await page.getByRole("link", { name: "My circle" }).first().click();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  // Replying to a comment.
+  await page.goto("/films/11");
+  const card = page.locator(".review-card", { hasText: "Science fiction" });
+  await card.getByRole("button", { name: /comments?$/ }).click();
+  await card.getByRole("button", { name: "Reply to Mia" }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.getByRole("button", { name: "Continue as Mia" }).click();
+  await expect(
+    card.getByRole("textbox", { name: "Reply to Mia" }),
+  ).toBeFocused();
+  await expect(card.locator(".thread-main")).toContainText("Agreed.");
+  await page.getByRole("link", { name: "My circle" }).first().click();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  // Opening My circle.
+  await page.goto("/circle");
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.getByRole("button", { name: "Continue as Mia" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Mia’s corner." }),
+  ).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("following the same notification again reopens a conversation closed since", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await login(page);
+  const bell = page.getByRole("button", { name: /^Notifications/ });
+  const follow = async () => {
+    await bell.click();
+    await page
+      .getByRole("region", { name: "Notifications" })
+      .getByRole("link", {
+        name: /Alex commented on your review of La La Land/,
+      })
+      .click();
+  };
+  await follow();
+  const card = page.locator(".review-card", { hasText: "Some dreams" });
+  await expect(card.locator(".review-thread")).toBeVisible();
+  await card.getByRole("button", { name: /comments?$/ }).click();
+  await expect(card.locator(".review-thread")).toHaveCount(0);
+  await follow();
+  await expect(card.locator(".review-thread")).toBeVisible();
+});
+
+test("a film page can start a new list with that film", async ({ page }) => {
+  await page.goto("/films/11");
+  await login(page);
+  await page.getByRole("button", { name: "Add to a list" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "New list" }).click();
+  await dialog
+    .getByRole("textbox", { name: "List name" })
+    .fill("Quiet arrivals");
+  await dialog.getByRole("button", { name: "Create list and add" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(
+    page.getByText("Arrival is the first film in Quiet arrivals."),
+  ).toBeVisible();
+  await page.goto("/circle?tab=lists");
+  await page.getByRole("link", { name: /Quiet arrivals/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "Quiet arrivals" }),
+  ).toBeVisible();
+  await expect(page.getByText("1 film", { exact: true })).toBeVisible();
+  page.once("dialog", () => {});
+  await page.getByRole("button", { name: "Delete list" }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Delete", exact: true })
+    .click();
+});

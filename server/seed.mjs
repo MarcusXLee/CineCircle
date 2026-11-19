@@ -177,7 +177,7 @@ export async function seedDatabase(pool) {
             cinema,
             row * 8 + col,
             `${String.fromCharCode(65 + row)}${col}`,
-            row === 5 ? "premium" : "standard",
+            isPremium(row, col) ? "premium" : "standard",
           ]);
     }
     let screeningId = 0;
@@ -206,8 +206,170 @@ export async function seedDatabase(pool) {
     );
     await c.query("INSERT INTO ticket_discount SELECT ticket_id,1 FROM ticket");
     await addClassicCircle(c);
+    await addDemoComments(c);
+    await addDemoBookmarks(c);
   });
   return true;
+}
+
+// Premium seats are the middle four of each row from the middle of the hall to the back
+// (rows D to F, seats 3 to 6), where the view of the screen is best.
+const isPremium = (row, col) => row >= 3 && col >= 3 && col <= 6;
+const premiumSql =
+  "LEFT(seat_number,1) IN ('D','E','F') AND CAST(SUBSTRING(seat_number,2) AS UNSIGNED) BETWEEN 3 AND 6";
+
+// Halls still using the first layout (only row F premium) move to the current one. A hall
+// whose seat types were changed in any other way is left as it is.
+async function updateSeatPlan(c) {
+  const [halls] = await c.query(
+    `SELECT cinema_id AS cinemaId,hall_id AS hallId,SUM(seat_type='premium') AS premium,
+    SUM(seat_type='premium' AND seat_number LIKE 'F%') AS backRow,SUM(seat_number LIKE 'F%') AS rowF
+    FROM seat GROUP BY cinema_id,hall_id`,
+  );
+  let updated = 0;
+  for (const h of halls) {
+    const firstLayout =
+      Number(h.premium) === Number(h.rowF) &&
+      Number(h.backRow) === Number(h.rowF);
+    if (!firstLayout || !Number(h.rowF)) continue;
+    await c.execute(
+      `UPDATE seat SET seat_type=IF(${premiumSql},'premium','standard') WHERE cinema_id=? AND hall_id=?`,
+      [h.cinemaId, h.hallId],
+    );
+    updated++;
+  }
+  return updated;
+}
+
+// A few replies under popular reviews, so conversations do not start empty. Added once:
+// only when no comments exist yet and the reviews and members they refer to are present.
+const demoComments = [
+  [
+    "alex",
+    11,
+    "noah",
+    "The ending got me too. I went straight back to the first scene.",
+  ],
+  [
+    "alex",
+    11,
+    "mia",
+    "Agreed. It is the kind of twist that leaves you a little kinder.",
+  ],
+  ["mia", 10, "jules", "That last look across the club. Every single time."],
+  [
+    "mia",
+    10,
+    "alex",
+    "The epilogue is the bravest five minutes in any musical.",
+  ],
+  ["eleanor", 13, "theo", "Seeing it on a big screen this year was a gift."],
+  [
+    "eleanor",
+    13,
+    "mia",
+    "Round up the usual suspects: still my favourite line.",
+  ],
+  [
+    "rosa",
+    15,
+    "sam",
+    "That press-conference ending. Not a dry eye in the house.",
+  ],
+  ["alex", 1, "noah", "The score alone could carry it."],
+  // Replies: the fifth value is the index of the comment being answered.
+  [
+    "alex",
+    11,
+    "alex",
+    "Same here. The first scene hits differently the second time.",
+    0,
+  ],
+  [
+    "alex",
+    11,
+    "noah",
+    "Exactly. I noticed the hands on the glass this time.",
+    8,
+  ],
+  ["mia", 10, "mia", "Thank you both. That look gets me every time.", 2],
+];
+// [member, index of the comment they like]
+const demoCommentLikes = [
+  ["mia", 0],
+  ["alex", 1],
+  ["jules", 3],
+  ["noah", 8],
+  ["rosa", 5],
+];
+// [member, list owner, list id]: a few bookmarks, so the most-saved collections lead.
+const demoBookmarks = [
+  ["mia", "eleanor", 1],
+  ["theo", "eleanor", 1],
+  ["rosa", "eleanor", 1],
+  ["alex", "eleanor", 1],
+  ["alex", "noah", 1],
+  ["jules", "noah", 1],
+  ["sam", "mia", 1],
+];
+async function addDemoBookmarks(c) {
+  const [[{ existing }]] = await c.query(
+    "SELECT COUNT(*) AS existing FROM list_bookmark",
+  );
+  if (existing) return 0;
+  const [users] = await c.query("SELECT user_id AS id,username FROM users");
+  const idOf = Object.fromEntries(users.map((u) => [u.username, u.id]));
+  let added = 0;
+  for (const [member, owner, listId] of demoBookmarks) {
+    if (!idOf[member] || !idOf[owner] || idOf[member] === idOf[owner]) continue;
+    const [result] = await c.execute(
+      "INSERT INTO list_bookmark(user_id,owner_id,list_id) SELECT ?,user_id,list_id FROM film_list WHERE user_id=? AND list_id=? AND visibility='public'",
+      [idOf[member], idOf[owner], listId],
+    );
+    added += result.affectedRows;
+  }
+  return added;
+}
+async function addDemoComments(c) {
+  const [[{ existing }]] = await c.query(
+    "SELECT COUNT(*) AS existing FROM review_comment",
+  );
+  if (existing) return 0;
+  const [users] = await c.query("SELECT user_id AS id,username FROM users");
+  const idOf = Object.fromEntries(users.map((u) => [u.username, u.id]));
+  let added = 0;
+  const commentIds = [];
+  for (const [
+    index,
+    [author, movie, commenter, text, parent],
+  ] of demoComments.entries()) {
+    if (!idOf[author] || !idOf[commenter]) continue;
+    if (parent !== undefined && !commentIds[parent]) continue;
+    const [[review]] = await c.execute(
+      "SELECT review_id AS id FROM review WHERE user_id=? AND movie_id=?",
+      [idOf[author], movie],
+    );
+    if (!review) continue;
+    const [result] = await c.execute(
+      "INSERT INTO review_comment(review_id,parent_comment_id,user_id,comment_text,create_date) VALUES(?,?,?,?,DATE_SUB(NOW(),INTERVAL ? MINUTE))",
+      [
+        review.id,
+        parent === undefined ? null : commentIds[parent],
+        idOf[commenter],
+        text,
+        60 - index * 5,
+      ],
+    );
+    commentIds[index] = result.insertId;
+    added++;
+  }
+  for (const [member, index] of demoCommentLikes)
+    if (idOf[member] && commentIds[index])
+      await c.execute(
+        "INSERT INTO comment_like(user_id,comment_id) VALUES(?,?)",
+        [idOf[member], commentIds[index]],
+      );
+  return added;
 }
 
 // Members added with the classic Hollywood films, with their reviews, follows and a list.
@@ -352,7 +514,7 @@ export async function extendCatalog(pool) {
     const [[{ movies }]] = await c.query(
       "SELECT COUNT(*) AS movies FROM movie",
     );
-    if (!movies) return { films: 0, members: 0 };
+    if (!movies) return { films: 0, members: 0, halls: 0, comments: 0 };
     const [genreRows] = await c.query(
       "SELECT genre_id AS id, genre_name AS name FROM genre FOR UPDATE",
     );
@@ -383,7 +545,13 @@ export async function extendCatalog(pool) {
       }
       added++;
     }
-    return { films: added, members: await addClassicCircle(c) };
+    return {
+      films: added,
+      members: await addClassicCircle(c),
+      halls: await updateSeatPlan(c),
+      comments: await addDemoComments(c),
+      bookmarks: await addDemoBookmarks(c),
+    };
   });
 }
 

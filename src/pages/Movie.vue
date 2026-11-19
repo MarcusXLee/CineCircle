@@ -49,6 +49,7 @@ async function load() {
     if (current === requestId) {
       data.value = next;
       error.value = "";
+      findLinked();
     }
   } catch (e) {
     if (current === requestId) error.value = e.message;
@@ -65,6 +66,37 @@ watch(
   { immediate: true },
 );
 watch(() => state.user?.userId, load);
+// A link to one review's conversation (?thread=) may point past the first page of reviews.
+// That review is fetched and shown first, apart from the paged list so paging stays exact;
+// once a page brings it into the list, it shows there instead.
+const linked = ref(null);
+async function findLinked() {
+  const reviewId = route.query.thread;
+  if (
+    !reviewId ||
+    !data.value ||
+    data.value.reviews.some((r) => String(r.reviewId) === String(reviewId))
+  )
+    return;
+  try {
+    linked.value =
+      (
+        await api(
+          `/reviews?reviewId=${encodeURIComponent(reviewId)}&movieId=${data.value.movie.movieId}`,
+        )
+      ).reviews[0] || null;
+  } catch {
+    linked.value = null;
+  }
+}
+const linkedReview = computed(() =>
+  linked.value &&
+  String(linked.value.reviewId) === String(route.query.thread) &&
+  !data.value?.reviews.some((r) => r.reviewId === linked.value.reviewId)
+    ? linked.value
+    : null,
+);
+watch(() => route.query.thread, findLinked);
 // Actions started while signed out continue after sign-in, once this member's
 // watchlist, watched date and review for the film have been loaded.
 const afterSignIn = (action) => async () => {
@@ -131,9 +163,29 @@ async function openLists() {
     selectedList.value = lists.value[0]
       ? `${lists.value[0].userId}/${lists.value[0].listId}`
       : "";
+    newList.value = { name: "", visibility: "private" };
+    creating.value = !lists.value.length;
     listModal.value = true;
   } catch (e) {
     notify(e.message, "error");
+  }
+}
+// A new list can be made from the same dialog, starting with this film.
+const creating = ref(false),
+  newList = ref({ name: "", visibility: "private" });
+async function createWithFilm() {
+  busy.value = true;
+  try {
+    const { list } = await api("/lists", {
+      method: "POST",
+      body: { ...newList.value, movieId: data.value.movie.movieId },
+    });
+    notify(`${data.value.movie.title} is the first film in ${list.name}.`);
+    listModal.value = false;
+  } catch (e) {
+    notify(e.message, "error");
+  } finally {
+    busy.value = false;
   }
 }
 async function saveToList() {
@@ -267,6 +319,14 @@ async function saveToList() {
             <p>Share a rating or a thought about this film.</p>
           </div>
           <ReviewCard
+            v-if="linkedReview"
+            :key="`linked-${linkedReview.reviewId}`"
+            :review="linkedReview"
+            :show-movie="false"
+            @refresh="load"
+            @edit="write($event)"
+          />
+          <ReviewCard
             v-for="review in data.reviews"
             :key="review.reviewId"
             :review="review"
@@ -355,7 +415,7 @@ async function saveToList() {
       ><p class="muted modal-intro">
         Add {{ data.movie.title }} to one of your collections.
       </p>
-      <form v-if="lists.length" @submit.prevent="saveToList">
+      <form v-if="lists.length && !creating" @submit.prevent="saveToList">
         <label class="field"
           >Your list<select v-model="selectedList">
             <option
@@ -369,16 +429,45 @@ async function saveToList() {
         ><button class="button primary full" :disabled="busy">
           Add to list
         </button>
-      </form>
-      <div v-else class="empty-state compact">
-        <p>Create your first list, then start collecting.</p>
-        <RouterLink
-          to="/circle?tab=lists"
-          class="button primary"
-          @click="listModal = false"
-          >Create a list</RouterLink
+        <button
+          type="button"
+          class="text-button new-list-toggle"
+          @click="creating = true"
         >
-      </div></Modal
+          <Plus :size="15" aria-hidden="true" />New list
+        </button>
+      </form>
+      <form v-else @submit.prevent="createWithFilm">
+        <p v-if="!lists.length" class="small muted">
+          Your first collection starts here.
+        </p>
+        <label class="field"
+          >List name<input
+            v-model="newList.name"
+            required
+            maxlength="255"
+            placeholder="Films for a rainy Sunday"
+        /></label>
+        <label class="field"
+          >Who can see this list?<select v-model="newList.visibility">
+            <option value="private">Just me — private</option>
+            <option value="public">Everyone — public</option>
+          </select></label
+        ><button
+          class="button primary full"
+          :disabled="busy || !newList.name.trim()"
+        >
+          Create list and add
+        </button>
+        <button
+          v-if="lists.length"
+          type="button"
+          class="text-button new-list-toggle"
+          @click="creating = false"
+        >
+          Back to my lists
+        </button>
+      </form></Modal
     ></template
   >
 </template>

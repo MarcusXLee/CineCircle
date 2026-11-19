@@ -254,8 +254,8 @@ async function book() {
                   <stop offset="1" stop-color="#a98450" stop-opacity="0.2" />
                 </linearGradient>
                 <radialGradient id="screen-glow" cx="0.5" cy="0" r="0.6">
-                  <stop offset="0" stop-color="#e9d6f5" stop-opacity="0.22" />
-                  <stop offset="1" stop-color="#e9d6f5" stop-opacity="0" />
+                  <stop offset="0" stop-color="#f3e2bd" stop-opacity="0.22" />
+                  <stop offset="1" stop-color="#f3e2bd" stop-opacity="0" />
                 </radialGradient>
               </defs>
               <path

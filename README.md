@@ -1,6 +1,6 @@
 # CineCircle
 
-A local movie community and cinema booking website. Vue 3 / Vite frontend, Express 5 API, and MySQL with the **revised 22-table schema** in `CineCircle_MySQL.sql`. It keeps the supplied ER image and adds five database rules (unique usernames and emails, one review per member per film, no self-follows, unique seat numbers per hall); see `database-review.md`.
+A local movie community and cinema booking website. Vue 3 / Vite frontend, Express 5 API, and MySQL with the **revised 25-table schema** in `CineCircle_MySQL.sql`. It adds five database rules to the supplied design (unique usernames and emails, one review per member per film, no self-follows, unique seat numbers per hall) `review_comment` (with replies to comments), `comment_like` and `list_bookmark` tables for the community, and `users.notifications_read_at` for the notification centre; see `database-review.md`. The ER diagram with these additions is `CineCircle_ER_updated.png` (the supplied diagram is kept unchanged).
 
 ## How to run it
 
@@ -30,7 +30,7 @@ docker compose up --build
 What happens:
 
 - `db` runs MySQL 8.4 with an empty `cinecircle` database, Hong Kong time (`+08:00`) and its files in the Docker volume `cinecircle_db-data`.
-- `app` waits until MySQL is healthy, then runs `node scripts/db.mjs init`. On an empty database this executes `CineCircle_MySQL.sql` (22 tables) and inserts the demo data listed below. On later starts, existing data is retained. It then serves the built site and the API on port 3001.
+- `app` waits until MySQL is healthy, then runs `node scripts/db.mjs init`. On an empty database this executes `CineCircle_MySQL.sql` (25 tables) and inserts the demo data listed below. On later starts, existing data is retained. It then serves the built site and the API on port 3001.
 
 | Task                     | Command                                                                                             |
 | ------------------------ | --------------------------------------------------------------------------------------------------- |
@@ -92,7 +92,7 @@ Keep the Terminal window open while you use CineCircle; press Ctrl+C to stop.
 | `npm run setup` | Asks the MySQL connection questions again (for example after changing the password), then sets up             |
 | `npm run dev`   | Development mode with live reload at http://127.0.0.1:5173 (API on port 3001)                                 |
 
-**Database setup and initial data.** On the first start, setup tries MySQL at `127.0.0.1:3306` as `root` without a password and asks for the connection only if that fails. Answers are saved in `.env` (this includes the password, so do not share or submit `.env`). If the database (default `cinecircle`) does not exist, setup runs `CineCircle_MySQL.sql` to create all 22 tables, then inserts the demo members, films, reviews, lists, cinemas, screenings and tickets. An existing CineCircle database is reused and never reset. To start again with fresh demo data, run `DROP DATABASE cinecircle;` in MySQL and then `npm start`. If a different database with that name already exists, setup stops without changing it; run `npm run setup` and choose another name.
+**Database setup and initial data.** On the first start, setup tries MySQL at `127.0.0.1:3306` as `root` without a password and asks for the connection only if that fails. Answers are saved in `.env` (this includes the password, so do not share or submit `.env`). If the database (default `cinecircle`) does not exist, setup runs `CineCircle_MySQL.sql` to create all 25 tables, then inserts the demo members, films, reviews, comments, lists, cinemas, screenings and tickets. A database created before the community tables existed gets them (and the reply column) on its next start, along with a few demo comments, likes and bookmarks and the current seat plan (see below); nothing it already holds is removed. An existing CineCircle database is reused and never reset. To start again with fresh demo data, run `DROP DATABASE cinecircle;` in MySQL and then `npm start`. If a different database with that name already exists, setup stops without changing it; run `npm run setup` and choose another name.
 
 **Databases made before the schema revision.** If your `cinecircle` database was created from the earlier SQL, the next start adds the five new rules to it in place and keeps all users, reviews, lists and tickets. If existing rows break a rule (for example two members with the same username), setup names the rule and stops before changing anything. Fix or remove those rows, then start again.
 
@@ -124,11 +124,14 @@ The sign-in dialog includes **Continue as Mia**. Mia's profile starts with watch
 - Search films by title, filter by genre, and sort by rating, popularity, release date or title.
 - Read film details, circle ratings/reviews and upcoming screenings.
 - Write, edit and delete your own reviews. Like/unlike another member's review.
+- Comment under any review, reply to any comment and like other members' comments. A conversation shows two layers at a time; opening a reply makes it the main comment with its own replies beneath, and Back returns a level. Replies from people you follow come first. Remove your own comments (with their replies), or any comment under your own review.
+- A notification bell gathers comments on your reviews, replies to your comments, likes on your reviews and comments, new reviews by people you follow, new followers, ticket bookings and reminders an hour before your screening; new ones pop up while you browse.
+- Switch the Community feed between everyone and only the people you follow.
 - Add/remove watchlist entries and record or change a watched date.
-- Create, rename and delete public/private film lists; add/remove films and change their order.
-- Visit member profiles, follow/unfollow people, and browse public collections.
+- Create, rename and delete public/private film lists; add/remove films and change their order. From a film page, add the film to a list or start a new list with it.
+- Visit member profiles, follow/unfollow people, and browse public collections, most bookmarked first. Bookmark other members' collections and find them under Saved in your corner.
 - Browse sample Hong Kong cinemas, dates and showtimes; select up to six seats and book them in one transaction.
-- See premium/eligible offers before confirming and find your booked tickets in persistent history.
+- See premium/eligible offers before confirming and find your booked tickets in persistent history; upcoming tickets also appear in My circle.
 - Start an action while signed out (follow, like, review, watchlist, book) and it carries on after you sign in.
 - Film and screening filters are kept in the address, so refresh, Back and shared links keep them. Long feeds load more on request instead of being cut off.
 
@@ -141,7 +144,7 @@ Application data uses the revised SQL without additional columns/tables. See `da
 The schema has no poster, director or pre-booking price fields. Therefore:
 
 - `server/catalog.mjs` supplies presentation metadata and a documented local pricing policy. Film titles, synopses, languages, durations, genres and ratings are queried from MySQL.
-- Standard seats cost HK$78 before 17:00 or HK$98 from 17:00; premium seats add HK$25.
+- Standard seats cost HK$78 before 17:00 or HK$98 from 17:00; premium seats add HK$25. Premium seats are the middle four of rows D to F in each hall.
 - `premium_user.discount_rate` is the **payable multiplier**: 0.8 means pay 80% of the base price, during the stored inclusive validity dates.
 - `discount.price` is interpreted as a fixed HKD reduction. The seeded **Weekday matinee** offer takes HK$8 off screenings before 17:00 on Monday–Friday. Eligibility is local configuration, because the schema has no applicability columns.
 - The best eligible offer is selected; offers do not stack. Server calculation is authoritative. Client-supplied prices are ignored. `ticket.price` stores the final amount; an applied fixed offer is associated through `ticket_discount`.
@@ -170,6 +173,7 @@ Checks cover real database CRUD, ownership/privacy, list ordering and concurrent
 | Location                                  | Purpose                                                                                 |
 | ----------------------------------------- | --------------------------------------------------------------------------------------- |
 | `CineCircle_MySQL.sql` / original PNG     | Revised database schema / supplied ER image                                             |
+| `CineCircle_ER_updated.png`               | The ER diagram with the community additions (Comment, replies, likes, bookmarks)        |
 | `server/routes/`                          | Accounts, social actions, lists, booking SQL                                            |
 | `server/db.mjs`                           | Pool, transactions, schema initialization and in-place upgrade                          |
 | `server/seed.mjs`                         | Initial rows across the schema                                                          |

@@ -7,6 +7,7 @@ CREATE TABLE `users` (
   username VARCHAR(100) NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
   register_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  notifications_read_at DATETIME NULL,
   PRIMARY KEY (user_id),
   CONSTRAINT uq_users_username UNIQUE (username)
 ) ENGINE=InnoDB;
@@ -85,6 +86,18 @@ CREATE TABLE `film_list_movie` (
   CONSTRAINT `chk_list_position` CHECK (position > 0)
 ) ENGINE=InnoDB;
 
+CREATE TABLE `list_bookmark` (
+  user_id BIGINT UNSIGNED NOT NULL,
+  owner_id BIGINT UNSIGNED NOT NULL,
+  list_id BIGINT UNSIGNED NOT NULL,
+  bookmark_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, owner_id, list_id),
+  KEY idx_bookmark_list (owner_id, list_id),
+  CONSTRAINT `fk_bookmark_user` FOREIGN KEY (user_id) REFERENCES `users` (user_id),
+  CONSTRAINT `fk_bookmark_list` FOREIGN KEY (owner_id, list_id) REFERENCES `film_list` (user_id, list_id),
+  CONSTRAINT `chk_bookmark_not_own` CHECK (user_id <> owner_id)
+) ENGINE=InnoDB;
+
 CREATE TABLE `review` (
   review_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   user_id BIGINT UNSIGNED NOT NULL,
@@ -126,6 +139,31 @@ CREATE TABLE `review_like` (
   PRIMARY KEY (user_id, review_id),
   CONSTRAINT `fk_review_like_user` FOREIGN KEY (user_id) REFERENCES `users` (user_id),
   CONSTRAINT `fk_review_like_target` FOREIGN KEY (review_id) REFERENCES `review` (review_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE `review_comment` (
+  comment_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  review_id BIGINT UNSIGNED NOT NULL,
+  parent_comment_id BIGINT UNSIGNED NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  comment_text VARCHAR(1000) NOT NULL,
+  create_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (comment_id),
+  UNIQUE KEY uq_comment_review (comment_id, review_id),
+  KEY idx_comment_review (review_id, create_date),
+  CONSTRAINT `fk_comment_review` FOREIGN KEY (review_id) REFERENCES `review` (review_id),
+  CONSTRAINT `fk_comment_parent` FOREIGN KEY (parent_comment_id, review_id) REFERENCES `review_comment` (comment_id, review_id),
+  CONSTRAINT `fk_comment_author` FOREIGN KEY (user_id) REFERENCES `users` (user_id),
+  CONSTRAINT `chk_comment_text` CHECK (CHAR_LENGTH(TRIM(comment_text)) > 0)
+) ENGINE=InnoDB;
+
+CREATE TABLE `comment_like` (
+  user_id BIGINT UNSIGNED NOT NULL,
+  comment_id BIGINT UNSIGNED NOT NULL,
+  like_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, comment_id),
+  CONSTRAINT `fk_comment_like_user` FOREIGN KEY (user_id) REFERENCES `users` (user_id),
+  CONSTRAINT `fk_comment_like_target` FOREIGN KEY (comment_id) REFERENCES `review_comment` (comment_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE `watches` (

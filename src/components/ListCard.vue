@@ -1,5 +1,5 @@
 <script setup>
-import { Lock, Globe2 } from "@lucide/vue";
+import { Lock, Globe2, Bookmark } from "@lucide/vue";
 import { poster, imageFallback } from "../api";
 defineProps({ list: Object });
 </script>
@@ -29,7 +29,17 @@ defineProps({ list: Object });
     </div>
     <p class="small muted">
       {{ list.movieCount }} {{ list.movieCount === 1 ? "film" : "films"
-      }}<span v-if="list.username"> curated by {{ list.username }}</span>
+      }}<span v-if="list.username"> curated by {{ list.username }}</span
+      ><span
+        v-if="list.bookmarks"
+        class="list-saves"
+        :aria-label="`Bookmarked by ${list.bookmarks} ${list.bookmarks === 1 ? 'member' : 'members'}`"
+        ><Bookmark
+          :size="12"
+          :fill="list.bookmarked ? 'currentColor' : 'none'"
+          aria-hidden="true"
+        />{{ list.bookmarks }}</span
+      >
     </p></RouterLink
   >
 </template>

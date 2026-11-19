@@ -57,3 +57,19 @@
 ## 已有验证
 
 初始脚本在独立 MySQL 8.0.46 实例中建成22表。原约束会拒绝同场同座位重复出票、跨影厅座位绑定和超范围评分。原脚本允许重复用户名/跨用户邮箱、同时属于两类会员、同片重复评分、自己关注自己、重复座位号、重复排序位置、重叠排片及“已有票仍 available”。应用测试另见 tests/api.test.mjs，浏览器测试见 tests/browser/app.spec.js。
+
+## 2026-11-18 新增：影评评论
+
+新增 `review_comment` 表（comment_id、review_id、user_id、comment_text、create_date），对应 ER 图中新实体 Comment：用户通过 Posts 发表评论，评论通过 On 属于某条影评；每条评论必须恰有一个作者和一条影评（完全参与），用户和影评可有任意多条评论。`comment_text` 有非空 CHECK，`(review_id, create_date)` 建索引以按时间读取会话。删除影评时在同一事务内先删评论与点赞。更新后的 ER 图见 `CineCircle_ER_updated.png`，原图保持不变。旧数据库在下次 setup 时补建此表。
+
+## 2026-11-18 新增：通知中心
+
+通知不单独建表：评论、回复、关注、购票和开场前一小时提醒都由现有表（review_comment、follows、ticket、screening）实时查询得出，避免冗余存储。只为 users 增加一个属性 `notifications_read_at`，记录用户最后查看通知的时间，用于计算未读数。ER 图中 User 增加该属性，见 `CineCircle_ER_updated.png`。旧数据库在下次 setup 时补加此列。
+
+## 2026-11-18 新增：楼中楼回复、评论点赞、收藏片单
+
+- **回复评论**：`review_comment` 增加 `parent_comment_id`（可空），对应 ER 图中 Comment 的自联系 Replies_to（一条回复最多对应一个父评论，一条评论可有多条回复）。复合外键 `(parent_comment_id, review_id)` 引用 `(comment_id, review_id)`，由数据库保证回复与父评论属于同一条影评。删除评论时用递归查询（WITH RECURSIVE）找出整棵回复树，在同一事务内先删点赞再删评论。
+- **评论点赞**：新表 `comment_like`（user_id、comment_id、like_date），对应 User 与 Comment 之间的多对多联系 Likes，结构与 review_like 一致；不能给自己的评论点赞。
+- **收藏片单**：新表 `list_bookmark`（user_id、owner_id、list_id、bookmark_date），对应 User 与弱实体 Film_List 之间的多对多联系 Bookmarks。因 film_list 主键为 (user_id, list_id)，收藏表用复合外键 (owner_id, list_id) 引用；CHECK 禁止收藏自己的片单。公开片单按收藏数排序；片单改为私密后对他人隐藏，删除片单时一并删除其收藏。
+- **关注的作用**：评论区中关注者的回复优先显示；关注对象在关注之后发布的影评会出现在通知中（同样由查询得出，不新增表）。
+- 现为 25 张表。旧数据库在下次 setup 时补建 comment_like、list_bookmark 并补加 parent_comment_id（先建唯一键，再建引用它的外键）。ER 图见 `CineCircle_ER_updated.png`。

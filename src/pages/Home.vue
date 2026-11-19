@@ -222,7 +222,7 @@ watch(() => state.user?.userId, load);
                 </figure>
                 <RouterLink
                   :to="`/films/${film.movieId}`"
-                  class="button primary"
+                  class="button concierge"
                   >Film details <ArrowUpRight :size="18" aria-hidden="true"
                 /></RouterLink>
               </div>
@@ -555,8 +555,29 @@ watch(() => state.user?.userId, load);
   font-style: italic;
   font-size: 18px;
   line-height: 1.4;
-  color: var(--pearl);
   text-wrap: pretty;
+}
+/* Hot stamping: the quote is bright gold foil pressed into the frame, with a fine grain
+   and light bands in the foil, a soft shadowed upper edge and a faint lit lower edge. */
+.feature-quote blockquote {
+  color: transparent;
+  background:
+    var(--grain),
+    linear-gradient(
+      100deg,
+      #dcdad6 0%,
+      #ffffff 15%,
+      #e6e3de 30%,
+      #fffefb 44%,
+      #d8d5d0 58%,
+      #f7f5f1 76%,
+      #cfccc6 100%
+    );
+  -webkit-background-clip: text;
+  background-clip: text;
+  text-shadow:
+    0 -1px 0 rgb(0 0 0 / 0.32),
+    0 1px 0 rgb(255 255 255 / 0.12);
 }
 .feature-quote figcaption {
   display: flex;
@@ -727,7 +748,7 @@ watch(() => state.user?.userId, load);
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.08em;
-  color: #493445;
+  color: var(--ink-wine);
 }
 .admission-admit {
   font-size: 10px;
@@ -822,13 +843,26 @@ watch(() => state.user?.userId, load);
   right: 18px;
   border-top: 2px dashed rgb(150 120 95 / 0.55);
 }
+/* Printed on the ticket: flat claret ink with a thin rule inside its edge, no depth. */
 .admission-button {
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  outline: 1px solid rgb(255 243 233 / 0.28);
+  outline-offset: -5px;
+  box-shadow: none;
   width: 100%;
-  background: #493445;
+  background: var(--wine-ink);
   color: #fff3e9;
 }
 .admission-button:hover {
-  background: #594054;
+  background: var(--wine-ink-deep);
+}
+.admission-button:focus-visible {
+  outline-color: #fff3e9;
+  box-shadow: 0 0 0 3px rgb(85 40 47 / 0.35);
 }
 .admission-serial {
   display: flex;
@@ -1011,6 +1045,111 @@ watch(() => state.user?.userId, load);
   }
   .marker {
     width: 34px;
+  }
+}
+
+/* Print and ink. The stock is pre-printed in claret (house name, ADMIT ONE, field labels);
+   the screening's details are stamped on afterwards in typewriter ink; the serial number
+   is struck in red; the tear line is punched; the printed button carries ink speckle. */
+.admission-house,
+.admission-admit,
+.admission-kind,
+.admission-fields dt {
+  color: var(--ink-wine);
+  text-shadow: var(--ink-bleed);
+}
+.admission-fields dd,
+.admission-film span,
+.admission-serial {
+  font-family: var(--typewriter);
+  color: var(--ink-black);
+  text-shadow: var(--ink-bleed);
+}
+.admission-fields dd {
+  font-weight: 400;
+  font-size: 14.5px;
+}
+.admission-fields .admission-time {
+  font-weight: 700;
+  font-size: 21px;
+}
+.admission-film span {
+  font-size: 12.5px;
+}
+.admission-serial {
+  font-size: 10px;
+}
+.admission-serial > span {
+  white-space: nowrap;
+}
+.admission-serial .admission-barcode {
+  width: 52px;
+}
+/* On a narrow ticket the serial number moves to its own line, at the right. */
+.admission-serial {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+.admission-serial span:last-child {
+  margin-left: auto;
+}
+.admission-serial span:last-child {
+  color: var(--ink-red);
+  letter-spacing: 0.06em;
+}
+.admission-stub::before {
+  top: -2px;
+  left: 14px;
+  right: 14px;
+  height: 4px;
+  border-top: 0;
+  background: var(--perforation);
+}
+.admission-button {
+  background: var(--ink-speckle), var(--wine-ink);
+}
+
+/* On wide screens the spotlight frame grows taller; the ticket's contents grow with it so
+   the paper does not open a blank band above the tear line. Sizes match the rules above
+   at 1440px and below. */
+@media (min-width: 1441px) {
+  .admission-paper {
+    padding: 30px 28px 26px;
+  }
+  .admission-house {
+    font-size: 17px;
+  }
+  .admission-kind {
+    margin: 22px 0 16px;
+  }
+  .admission-film {
+    gap: 16px;
+  }
+  .admission-film img {
+    width: 74px;
+    height: 111px;
+  }
+  .admission-film h2 {
+    font-size: 31px;
+  }
+  .admission-film span {
+    font-size: 13.5px;
+  }
+  .admission-fields {
+    margin-top: 26px;
+  }
+  .admission-fields > div {
+    padding-block: 14px;
+  }
+  .admission-fields dt {
+    font-size: 10.5px;
+  }
+  .admission-fields dd {
+    font-size: 15px;
+    margin-top: 6px;
+  }
+  .admission-fields .admission-time {
+    font-size: 24px;
   }
 }
 </style>

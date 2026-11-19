@@ -7,6 +7,7 @@ import { accounts } from "./routes/accounts.mjs";
 import { social, reviews, reviewPage, library } from "./routes/social.mjs";
 import { lists, listCards } from "./routes/lists.mjs";
 import { booking, screeningRows } from "./routes/booking.mjs";
+import { notifications } from "./routes/notifications.mjs";
 import { movieSelect, presentation } from "./catalog.mjs";
 import { HttpError, id, text, userInfo, page, trimPage } from "./auth.mjs";
 
@@ -163,7 +164,13 @@ export function createApp({ pool, sessionSecret }) {
       more: { lists: userLists.more, reviews: userReviews.more },
     });
   });
-  app.use("/api", social(pool), lists(pool), booking(pool));
+  app.use(
+    "/api",
+    social(pool),
+    lists(pool),
+    booking(pool),
+    notifications(pool),
+  );
   app.use("/api", (req, res) =>
     res.status(404).json({ error: "This page could not be found." }),
   );

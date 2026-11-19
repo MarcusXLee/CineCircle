@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, watch } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import { Plus, Check } from "@lucide/vue";
 import { api, state, signedIn, notify, displayName } from "../api";
 import ReviewCard from "../components/ReviewCard.vue";
@@ -10,11 +10,22 @@ const data = ref(null),
   loading = ref(true),
   error = ref(""),
   editor = ref(null),
-  busy = ref(null);
+  busy = ref(null),
+  feed = ref("everyone");
+// The review feed: everyone, or only the members the visitor follows.
+const feedPath = computed(() =>
+  feed.value === "following" ? "/reviews?following=1" : "/reviews",
+);
+function showFeed(value) {
+  if (value === "following" && !signedIn(() => showFeed("following"))) return;
+  feed.value = value;
+  load();
+}
 async function load() {
+  if (feed.value === "following" && !state.user) feed.value = "everyone";
   try {
     const [r, u, l] = await Promise.all([
-      api("/reviews"),
+      api(feedPath.value),
       api("/users"),
       api("/lists?public=1"),
     ]);
@@ -67,6 +78,32 @@ watch(() => state.user?.userId, load);
         <div>
           <div class="section-heading">
             <h2>Recent reviews</h2>
+            <div class="satin-tabs" role="group" aria-label="Whose reviews">
+              <button
+                type="button"
+                :aria-pressed="feed === 'everyone'"
+                @click="showFeed('everyone')"
+              >
+                Everyone
+              </button>
+              <button
+                type="button"
+                :aria-pressed="feed === 'following'"
+                @click="showFeed('following')"
+              >
+                People you follow
+              </button>
+            </div>
+          </div>
+          <div
+            v-if="feed === 'following' && !data.reviews.length"
+            class="empty-state"
+          >
+            <h3>Nothing from people you follow yet.</h3>
+            <p>
+              Follow members from the list beside the feed to see their reviews
+              here.
+            </p>
           </div>
           <ReviewCard
             v-for="review in data.reviews"
@@ -78,7 +115,7 @@ watch(() => state.user?.userId, load);
           <MoreButton
             :data="data"
             field="reviews"
-            path="/reviews"
+            :path="feedPath"
             :id-of="(r) => r.reviewId"
             label="Show more reviews"
           />

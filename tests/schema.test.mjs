@@ -103,4 +103,60 @@ test("legacy setup stops at conflicts, then upgrades in place and tolerates repe
   const [after] = await pool.query(snapshotSql);
   assert.deepEqual(after, before);
   await rejectInvalidWrites(pool);
+  // The comments table, added to the schema later, is created in place.
+  const [comments] = await pool.query("SHOW TABLES LIKE 'review_comment'");
+  assert.equal(comments.length, 1);
+  const [readAt] = await pool.query(
+    "SHOW COLUMNS FROM users LIKE 'notifications_read_at'",
+  );
+  assert.equal(readAt.length, 1);
+  const [likes] = await pool.query("SHOW TABLES LIKE 'comment_like'");
+  assert.equal(likes.length, 1);
+  const [bookmarks] = await pool.query("SHOW TABLES LIKE 'list_bookmark'");
+  assert.equal(bookmarks.length, 1);
+});
+
+test("a database from the first comments release gains replies and comment likes in place", async (t) => {
+  const { name, pool } = await testDatabase(t);
+  await initializeDatabase(name);
+  await pool.query(
+    "INSERT INTO users(user_id,username,password_hash) VALUES (1,'first_member','fixture')",
+  );
+  await pool.query(
+    "INSERT INTO movie(movie_id,title,duration,language) VALUES (1,'Test Film',90,'English')",
+  );
+  await pool.query(
+    "INSERT INTO review(review_id,user_id,movie_id,rating) VALUES (1,1,1,7)",
+  );
+  // Back to the first comments release: no comment likes, no replies.
+  await pool.query("DROP TABLE comment_like");
+  await pool.query(
+    "ALTER TABLE review_comment DROP FOREIGN KEY fk_comment_parent",
+  );
+  await pool.query(
+    "ALTER TABLE review_comment DROP COLUMN parent_comment_id, DROP INDEX uq_comment_review",
+  );
+  await pool.query(
+    "INSERT INTO review_comment(review_id,user_id,comment_text) VALUES (1,1,'Kept.')",
+  );
+  assert.equal(await initializeDatabase(name), 2);
+  const [[kept]] = await pool.query(
+    "SELECT comment_text AS text,parent_comment_id AS parent FROM review_comment",
+  );
+  assert.deepEqual(kept, { text: "Kept.", parent: null });
+  await pool.query(
+    "INSERT INTO review_comment(review_id,parent_comment_id,user_id,comment_text) VALUES (1,1,1,'A reply.')",
+  );
+  assert.equal(await initializeDatabase(name), 0);
+  // An upgrade interrupted before the last step (the foreign key) finishes on the next start.
+  await pool.query(
+    "ALTER TABLE review_comment DROP FOREIGN KEY fk_comment_parent",
+  );
+  assert.equal(await initializeDatabase(name), 1);
+  await assert.rejects(
+    pool.query(
+      "INSERT INTO review_comment(review_id,parent_comment_id,user_id,comment_text) VALUES (1,999,1,'Orphan.')",
+    ),
+    { code: "ER_NO_REFERENCED_ROW_2" },
+  );
 });

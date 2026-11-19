@@ -11,6 +11,7 @@ import {
   Lock,
   Globe2,
   Star,
+  Bookmark,
 } from "@lucide/vue";
 import {
   api,
@@ -19,6 +20,7 @@ import {
   confirmAction,
   imageFallback,
   displayName,
+  signedIn,
 } from "../api";
 import ListEditor from "../components/ListEditor.vue";
 const route = useRoute(),
@@ -66,6 +68,14 @@ watch(
   { immediate: true },
 );
 watch(() => state.user?.userId, load);
+// Bookmarking keeps another member's public list in your corner, under Saved.
+function bookmark(save = !data.value.list.bookmarked) {
+  if (!signedIn(() => bookmark(true))) return;
+  action(
+    () => api(`${path.value}/bookmark`, { method: save ? "PUT" : "DELETE" }),
+    save ? "Saved to your corner." : "Removed from your saved lists.",
+  );
+}
 async function action(fn, message) {
   busy.value = true;
   try {
@@ -154,9 +164,26 @@ async function deleteList() {
           </p>
           <p class="small muted">
             {{ data.movies.length }}
-            {{ data.movies.length === 1 ? "film" : "films" }}
+            {{ data.movies.length === 1 ? "film" : "films"
+            }}<template v-if="data.list.bookmarks">
+              · saved by {{ data.list.bookmarks }}
+              {{ data.list.bookmarks === 1 ? "member" : "members" }}</template
+            >
           </p>
         </div>
+        <button
+          v-if="!own && data.list.visibility === 'public'"
+          class="button secondary small list-bookmark"
+          :class="{ saved: data.list.bookmarked }"
+          :aria-pressed="data.list.bookmarked"
+          :disabled="busy"
+          @click="bookmark()"
+        >
+          <Bookmark
+            :size="15"
+            :fill="data.list.bookmarked ? 'currentColor' : 'none'"
+          />{{ data.list.bookmarked ? "Saved" : "Bookmark" }}
+        </button>
         <div v-if="own" class="list-owner-actions">
           <button class="button secondary small" @click="editor = true">
             <Pencil :size="15" />Edit list</button

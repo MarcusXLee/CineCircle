@@ -6,6 +6,9 @@ export const state = reactive({
   authMode: "login",
   toast: null,
   confirmation: null,
+  // Counts notification links followed to the page already showing, which change nothing
+  // in the address; a review card reopens its conversation when this changes.
+  revisits: 0,
 });
 let toastTimer;
 export function notify(message, type = "success") {
