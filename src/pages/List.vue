@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch } from "vue";
+import { ref, computed, nextTick, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   ArrowLeft,
@@ -22,46 +22,42 @@ import {
   displayName,
   signedIn,
 } from "../api";
+import FilmPicker from "../components/FilmPicker.vue";
 import ListEditor from "../components/ListEditor.vue";
 const route = useRoute(),
   router = useRouter(),
   data = ref(null),
-  allMovies = ref([]),
-  selectedMovie = ref(""),
+  pickerOpen = ref(false),
+  addTrigger = ref(null),
   error = ref(""),
   loading = ref(true),
   busy = ref(false),
   editor = ref(false);
-const own = computed(() => state.user?.userId === data.value?.list.userId);
+const own = computed(() =>
+  Boolean(state.user && state.user.userId === data.value?.list.userId),
+);
 const path = computed(
   () => `/lists/${route.params.userId}/${route.params.listId}`,
 );
-const availableMovies = computed(() =>
-  allMovies.value.filter(
-    (m) => !data.value?.movies.some((x) => x.movieId === m.movieId),
-  ),
-);
+let loadId = 0;
 async function load() {
+  const token = ++loadId;
   try {
-    data.value = await api(path.value);
-    error.value = "";
-    if (own.value && !allMovies.value.length)
-      allMovies.value = (await api("/movies?sort=title")).movies;
-    if (
-      !availableMovies.value.some(
-        (m) => String(m.movieId) === selectedMovie.value,
-      )
-    )
-      selectedMovie.value = String(availableMovies.value[0]?.movieId || "");
+    const result = await api(path.value);
+    if (token === loadId) {
+      data.value = result;
+      error.value = "";
+    }
   } catch (e) {
-    error.value = e.message;
+    if (token === loadId) error.value = e.message;
   } finally {
-    loading.value = false;
+    if (token === loadId) loading.value = false;
   }
 }
 watch(
   () => route.fullPath,
   () => {
+    pickerOpen.value = false;
     loading.value = true;
     load();
   },
@@ -88,16 +84,24 @@ async function action(fn, message) {
     busy.value = false;
   }
 }
-function add() {
-  if (selectedMovie.value)
-    action(
-      () =>
-        api(path.value + "/movies", {
-          method: "POST",
-          body: { movieId: Number(selectedMovie.value) },
-        }),
-      "Film added to your list.",
-    );
+async function addFilm(movie) {
+  const target = path.value;
+  await api(target + "/movies", {
+    method: "POST",
+    body: { movieId: movie.movieId },
+  });
+  if (
+    path.value === target &&
+    own.value &&
+    !data.value.movies.some((m) => m.movieId === movie.movieId)
+  ) {
+    data.value.movies.push(movie);
+  }
+}
+async function closePicker() {
+  pickerOpen.value = false;
+  await nextTick();
+  addTrigger.value?.focus();
 }
 function remove(movieId) {
   action(
@@ -185,6 +189,15 @@ async function deleteList() {
           />{{ data.list.bookmarked ? "Saved" : "Bookmark" }}
         </button>
         <div v-if="own" class="list-owner-actions">
+          <button
+            ref="addTrigger"
+            class="button primary small"
+            :disabled="busy"
+            aria-haspopup="dialog"
+            @click="pickerOpen = true"
+          >
+            <Plus :size="16" aria-hidden="true" />Add films
+          </button>
           <button class="button secondary small" @click="editor = true">
             <Pencil :size="15" />Edit list</button
           ><button
@@ -197,34 +210,29 @@ async function deleteList() {
           </button>
         </div>
       </div>
-      <form v-if="own" class="add-film-form" @submit.prevent="add">
-        <label for="film-to-add">Film to add</label
-        ><select id="film-to-add" v-model="selectedMovie">
-          <option v-if="!availableMovies.length" value="">
-            Every film is already in this list
-          </option>
-          <option
-            v-for="m in availableMovies"
-            :key="m.movieId"
-            :value="String(m.movieId)"
-          >
-            {{ m.title }}
-          </option></select
-        ><button class="button primary" :disabled="busy || !selectedMovie">
-          <Plus :size="17" />Add film
-        </button>
-      </form>
       <div v-if="!data.movies.length" class="empty-state">
-        <Plus :size="34" />
-        <h2>A little room for great films.</h2>
-        <p>
-          {{
-            own
-              ? "Choose your first film above to start this collection."
-              : "This collection is waiting for its first film."
-          }}
-        </p>
+        <template v-if="own">
+          <button
+            class="add-first-film"
+            type="button"
+            aria-haspopup="dialog"
+            @click="pickerOpen = true"
+          >
+            <span class="medallion"
+              ><Plus :size="30" aria-hidden="true"
+            /></span>
+            <span>Add your first film</span>
+          </button>
+          <p>Search by title to find a film for this list.</p>
+        </template>
+        <p v-else>This collection is waiting for its first film.</p>
       </div>
+      <FilmPicker
+        v-if="pickerOpen && own"
+        :list="data.list"
+        :members="data.movies"
+        :add-film="addFilm"
+        @close="closePicker" />
       <div class="list-films">
         <article
           v-for="(movie, index) in data.movies"

@@ -24,6 +24,8 @@ import {
 } from "../api";
 import ReviewCard from "../components/ReviewCard.vue";
 import ReviewEditor from "../components/ReviewEditor.vue";
+import ListVisibility from "../components/ListVisibility.vue";
+import ChoiceMenu from "../components/ChoiceMenu.vue";
 import Modal from "../components/Modal.vue";
 import MoreButton from "../components/MoreButton.vue";
 import { printFor } from "../film-programme";
@@ -416,17 +418,19 @@ async function saveToList() {
         Add {{ data.movie.title }} to one of your collections.
       </p>
       <form v-if="lists.length && !creating" @submit.prevent="saveToList">
-        <label class="field"
-          >Your list<select v-model="selectedList">
-            <option
-              v-for="l in lists"
-              :key="`${l.userId}/${l.listId}`"
-              :value="`${l.userId}/${l.listId}`"
-            >
-              {{ l.name }}
-            </option>
-          </select></label
-        ><button class="button primary full" :disabled="busy">
+        <ChoiceMenu
+          class="field"
+          label="Your list"
+          show-label
+          v-model="selectedList"
+          :options="
+            lists.map((l) => ({
+              value: l.userId + '/' + l.listId,
+              label: l.name,
+            }))
+          "
+        />
+        <button class="button primary full" :disabled="busy">
           Add to list
         </button>
         <button
@@ -448,12 +452,8 @@ async function saveToList() {
             maxlength="255"
             placeholder="Films for a rainy Sunday"
         /></label>
-        <label class="field"
-          >Who can see this list?<select v-model="newList.visibility">
-            <option value="private">Just me — private</option>
-            <option value="public">Everyone — public</option>
-          </select></label
-        ><button
+        <ListVisibility v-model="newList.visibility" />
+        <button
           class="button primary full"
           :disabled="busy || !newList.name.trim()"
         >

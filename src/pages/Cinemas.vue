@@ -2,7 +2,15 @@
 import { ref, computed, watch, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { MapPin, Ticket, CalendarDays } from "@lucide/vue";
-import { api, dateLabel, timeLabel, shortMoney, imageFallback } from "../api";
+import {
+  api,
+  dateLabel,
+  timeLabel,
+  shortMoney,
+  imageFallback,
+  poster,
+} from "../api";
+import ChoiceMenu from "../components/ChoiceMenu.vue";
 import MoreButton from "../components/MoreButton.vue";
 const route = useRoute(),
   router = useRouter(),
@@ -29,6 +37,14 @@ const movieOptions = computed(() => {
     options.set(movie.value, { movieId: movie.value, title: "Selected film" });
   return [...options.values()];
 });
+const filmChoices = computed(() => [
+  { value: "all", label: "All films" },
+  ...movieOptions.value.map((m) => ({
+    value: String(m.movieId),
+    label: m.title,
+    poster: poster(m.movieId),
+  })),
+]);
 const matchesPlace = (s) =>
   (!cinema.value || s.cinemaId === Number(cinema.value)) &&
   (!movie.value || s.movieId === Number(movie.value));
@@ -162,19 +178,13 @@ onMounted(load);
             ><strong>{{ dateLabel(d).replace(/^\w+,?\s*/, "") }}</strong>
           </button>
         </div>
-        <label class="film-filter"
-          ><span class="sr-only">Filter screenings by film</span
-          ><select v-model="movie" aria-label="Filter screenings by film">
-            <option value="">All films</option>
-            <option
-              v-for="m in movieOptions"
-              :key="m.movieId"
-              :value="String(m.movieId)"
-            >
-              {{ m.title }}
-            </option>
-          </select></label
-        >
+        <ChoiceMenu
+          class="film-filter"
+          label="Filter screenings by film"
+          :model-value="movie || 'all'"
+          @update:model-value="movie = $event === 'all' ? '' : $event"
+          :options="filmChoices"
+        />
       </div>
       <p class="small muted schedule-note">
         All times in Hong Kong time. Choose a showtime to see available seats.

@@ -6,15 +6,14 @@ defineProps({ list: Object });
 <template>
   <RouterLink :to="`/lists/${list.userId}/${list.listId}`" class="list-card"
     ><div class="list-covers">
-      <img
-        v-for="(movieId, index) in list.covers"
+      <div
+        v-for="movieId in list.covers"
         :key="movieId"
-        :src="poster(movieId)"
-        alt=""
-        :style="{ '--cover-index': index }"
-        loading="lazy"
-        @error="imageFallback"
-      />
+        class="list-cover"
+        :style="{ '--poster-art': `url(${poster(movieId)})` }"
+      >
+        <img :src="poster(movieId)" alt="" loading="lazy" @error="imageFallback" />
+      </div>
       <div v-if="!list.covers?.length" class="empty-covers">
         A new collection, waiting for its first film.
       </div>

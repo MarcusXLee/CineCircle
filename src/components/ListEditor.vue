@@ -1,5 +1,6 @@
 <script setup>
 import { ref } from "vue";
+import ListVisibility from "./ListVisibility.vue";
 import Modal from "./Modal.vue";
 import { api, notify } from "../api";
 const props = defineProps({ list: Object });
@@ -56,13 +57,9 @@ async function save() {
           rows="3"
           maxlength="3000"
           placeholder="What brings these films together?"
-        ></textarea></label
-      ><label class="field"
-        >Who can see this list?<select v-model="visibility">
-          <option value="private">Just me — private</option>
-          <option value="public">Everyone — public</option>
-        </select></label
-      >
+        ></textarea>
+      </label>
+      <ListVisibility v-model="visibility" />
       <p v-if="error" class="form-error" role="alert">{{ error }}</p>
       <button class="button primary full" :disabled="busy">
         {{ busy ? "Saving…" : list ? "Save list" : "Create list" }}
