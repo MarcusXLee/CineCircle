@@ -260,6 +260,7 @@ CREATE TABLE `ticket_discount` (
   ticket_id BIGINT UNSIGNED NOT NULL,
   discount_id BIGINT UNSIGNED NOT NULL,
   PRIMARY KEY (ticket_id, discount_id),
+  CONSTRAINT uq_ticket_discount_ticket UNIQUE (ticket_id),
   CONSTRAINT `fk_td_ticket` FOREIGN KEY (ticket_id) REFERENCES `ticket` (ticket_id),
   CONSTRAINT `fk_td_discount` FOREIGN KEY (discount_id) REFERENCES `discount` (discount_id)
 ) ENGINE=InnoDB;
