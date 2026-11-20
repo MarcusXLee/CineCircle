@@ -310,9 +310,17 @@ function newListSaved(list) {
               <ListCard v-for="l in data.lists" :key="l.listId" :list="l" />
             </div>
             <div v-else class="empty-state">
-              <Plus :size="34" />
-              <h3>Your first collection starts with a thought.</h3>
-              <p>Give it a name, add a film, and make it yours.</p>
+              <button
+                class="add-first-film"
+                type="button"
+                aria-haspopup="dialog"
+                @click="listEditor = true"
+              >
+                <span class="medallion"
+                  ><Plus :size="30" aria-hidden="true"
+                /></span>
+                <span>Create your first list</span>
+              </button>
             </div>
             <MoreButton
               :data="data"

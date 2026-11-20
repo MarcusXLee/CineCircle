@@ -560,19 +560,6 @@ select:focus-visible {
   width: 100%;
   font-size: 14px;
 }
-.sort-control {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 13px;
-  color: var(--muted);
-}
-.sort-control select {
-  background: transparent;
-  border: 0;
-  padding: 10px 25px 10px 0;
-  font-size: 13px;
-}
 .genre-filters {
   display: flex;
   gap: 9px;
@@ -942,29 +929,35 @@ select:focus-visible {
   gap: 30px;
 }
 .list-covers {
-  position: relative;
   height: 220px;
   background: var(--surface);
   border-radius: 8px;
   overflow: hidden;
-  display: flex;
-  align-items: stretch;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 2px;
 }
-.list-covers img {
-  height: 100%;
-  width: 40%;
-  object-fit: cover;
-  margin-left: -20%;
-  box-shadow: -5px 0 15px #0005;
+.list-cover {
   position: relative;
-  z-index: calc(5 - var(--cover-index));
+  isolation: isolate;
+  overflow: hidden;
 }
-.list-covers img:first-child {
-  margin-left: 0;
+.list-cover::before {
+  content: "";
+  position: absolute;
+  inset: -12px;
+  z-index: -1;
+  background: var(--poster-art) center / cover;
+  filter: blur(12px);
+  opacity: .38;
 }
-.list-covers img:only-of-type {
+.list-cover img {
+  display: block;
   width: 100%;
-  object-position: center 30%;
+  height: 100%;
+  object-fit: contain;
 }
 .list-card-info {
   display: flex;
@@ -1041,27 +1034,14 @@ select:focus-visible {
   align-items: center;
   flex-shrink: 0;
 }
-.add-film-form {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  padding: 20px 24px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  margin-bottom: 24px;
-}
-.add-film-form label {
-  font-size: 13px;
-  white-space: nowrap;
-  color: var(--muted);
-}
-.add-film-form select {
-  flex: 1;
-}
-.add-film-form .button {
-  white-space: nowrap;
-}
+.list-owner-actions { flex-wrap: wrap; }
+.add-first-film { display:inline-flex; flex-direction:column; align-items:center; gap:16px; padding:6px 12px; border-radius:12px; color:var(--pearl); font:400 clamp(23px,3vw,31px)/1.18 "Baskervville", Georgia, serif; }
+.add-first-film .medallion { height:60px; width:60px; }
+.add-first-film:hover { color: var(--gilt); }
+.add-first-film:hover .medallion, .add-first-film:focus-visible .medallion { border-color:var(--gilt); }
+.choice-menu.sort-control { width: min(100%, 215px); }
+.choice-menu.film-filter { width: min(100%, 230px); }
+@media(max-width:600px) { .choice-menu.sort-control, .choice-menu.film-filter { width:100%; } }
 .list-film {
   display: flex;
   align-items: center;
@@ -1294,11 +1274,6 @@ select:focus-visible {
 }
 .film-filter {
   flex-shrink: 0;
-  max-width: 230px;
-}
-.film-filter > select {
-  font-size: 12px;
-  padding: 11px 25px 11px 12px;
   max-width: 230px;
 }
 .schedule-note {
@@ -2325,16 +2300,6 @@ select:focus-visible {
   .catalog-toolbar {
     gap: 18px;
   }
-  .sort-control {
-    gap: 6px;
-  }
-  .sort-control > svg {
-    display: none;
-  }
-  .sort-control select {
-    font-size: 12px;
-    max-width: 160px;
-  }
   .movie-overview {
     grid-template-columns: 180px minmax(0, 1fr);
     gap: 27px;
@@ -2426,13 +2391,6 @@ select:focus-visible {
   }
   .list-heading {
     gap: 20px;
-  }
-  .add-film-form {
-    padding: 17px;
-    gap: 12px;
-  }
-  .add-film-form label {
-    display: none;
   }
   .list-film {
     gap: 18px;
@@ -2736,19 +2694,6 @@ select:focus-visible {
     padding: 13px 0;
     font-size: 13px;
   }
-  .sort-control {
-    align-self: flex-end;
-    gap: 8px;
-  }
-  .sort-control > svg {
-    display: block;
-    width: 13px;
-  }
-  .sort-control select {
-    max-width: 220px;
-    padding: 9px 22px 9px 0;
-    font-size: 11px;
-  }
   .genre-filters {
     margin-top: 13px;
     margin-bottom: 19px;
@@ -3023,22 +2968,6 @@ select:focus-visible {
   .list-owner-actions > .button {
     font-size: 11px;
   }
-  .add-film-form {
-    flex-wrap: wrap;
-    padding: 15px;
-    gap: 12px;
-  }
-  .add-film-form select {
-    width: 100%;
-    flex: auto;
-    font-size: 12px;
-  }
-  .add-film-form .button {
-    width: 100%;
-    font-size: 12px;
-    padding: 9px;
-    min-height: 38px;
-  }
   .list-film {
     gap: 11px;
     padding: 22px 0;
@@ -3200,11 +3129,6 @@ select:focus-visible {
   .film-filter {
     width: 100%;
     max-width: none;
-  }
-  .film-filter > select {
-    max-width: 100%;
-    width: 100%;
-    font-size: 12px;
   }
   .schedule-note {
     font-size: 10px;

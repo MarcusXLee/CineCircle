@@ -100,8 +100,30 @@ test("signed-in member creates, edits and deletes a review and a private list", 
   await expect(
     page.getByRole("heading", { name: "Browser test list", exact: true }),
   ).toBeVisible();
-  await page.getByLabel("Film to add").selectOption("12");
-  await page.getByRole("button", { name: "Add film", exact: true }).click();
+  await page.getByRole("button", { name: "Add your first film" }).click();
+  const picker = page.getByRole("dialog", { name: "Add films" });
+  const search = picker.getByRole("searchbox", { name: "Search films" });
+  await expect(search).toBeFocused();
+  await search.fill("NoSuchFilm987");
+  await expect(picker.getByText("No films found.")).toBeVisible();
+  await search.fill("portrait");
+  const film = picker
+    .getByRole("listitem")
+    .filter({ hasText: "Portrait of a Lady on Fire" });
+  await expect(film.locator("img")).toBeVisible();
+  await film
+    .getByRole("button", {
+      name: "Add Portrait of a Lady on Fire",
+      exact: true,
+    })
+    .click();
+  await expect(
+    film.getByRole("button", { name: /already in this list/i }),
+  ).toBeDisabled();
+  await picker.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Add films", exact: true }),
+  ).toBeFocused();
   await expect(page.locator(".list-film")).toHaveCount(1);
   await page.reload();
   await expect(page.locator(".list-film")).toHaveCount(1);
@@ -216,12 +238,27 @@ test("screening filters stay in the address and empty days point to the next sho
   await page.goto("/cinemas");
   const dates = page.getByRole("group", { name: "Choose screening date" });
   await dates.getByRole("button").nth(1).click();
-  await page.getByLabel("Filter screenings by film").selectOption("1");
+  await page
+    .getByRole("combobox", { name: "Filter screenings by film" })
+    .click();
+  await expect
+    .poll(() =>
+      page.getByRole("listbox").evaluate((el) => {
+        const box = el.getBoundingClientRect();
+        return box.top >= 0 && box.bottom <= innerHeight && box.height > 0;
+      }),
+    )
+    .toBe(true);
+  await page
+    .getByRole("option", { name: "In the Mood for Love", exact: true })
+    .click();
   await expect(page).toHaveURL(/date=\d{4}-\d{2}-\d{2}.*movieId=1/);
   const url = page.url();
   await page.reload();
   expect(page.url()).toBe(url);
-  await expect(page.getByLabel("Filter screenings by film")).toHaveValue("1");
+  await expect(
+    page.getByRole("combobox", { name: "Filter screenings by film" }),
+  ).toContainText("In the Mood for Love");
   const empty = page.getByRole("heading", { name: /^Not showing on / });
   if (await empty.isVisible()) {
     await page.getByRole("button", { name: /^Go to / }).click();
@@ -456,7 +493,17 @@ test("a film page can start a new list with that film", async ({ page }) => {
   await login(page);
   await page.getByRole("button", { name: "Add to a list" }).click();
   const dialog = page.getByRole("dialog");
+  const listMenu = dialog.getByRole("combobox", { name: "Your list" });
+  await listMenu.click();
+  await expect(page.getByRole("listbox")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(listMenu).toBeFocused();
   await dialog.getByRole("button", { name: "New list" }).click();
+  await dialog.getByText("Everyone", { exact: true }).click();
+  await expect(
+    dialog.getByRole("radio", { name: "Public", exact: true }),
+  ).toBeChecked();
+  await dialog.getByText("Only me", { exact: true }).click();
   await dialog
     .getByRole("textbox", { name: "List name" })
     .fill("Quiet arrivals");

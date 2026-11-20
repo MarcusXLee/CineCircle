@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Film, Search, SlidersHorizontal, X } from "@lucide/vue";
 import { api, imageFallback } from "../api";
+import ChoiceMenu from "../components/ChoiceMenu.vue";
 import PosterCard from "../components/PosterCard.vue";
 import MoreButton from "../components/MoreButton.vue";
 
@@ -139,18 +140,22 @@ onBeforeUnmount(() => {
           <X :size="17" aria-hidden="true" />
         </button>
       </div>
-      <label class="sort-control"
-        ><SlidersHorizontal :size="16" aria-hidden="true" /><span
-          class="sr-only"
-          >Sort films</span
-        >
-        <select :value="sort" @change="filterBy({ sort: $event.target.value })">
-          <option value="popular">Popular in the circle</option>
-          <option value="rating">Highest rated</option>
-          <option value="newest">Newest releases</option>
-          <option value="title">Title, A to Z</option>
-        </select>
-      </label>
+      <ChoiceMenu
+        class="sort-control"
+        label="Sort films"
+        :model-value="sort"
+        @update:model-value="filterBy({ sort: $event })"
+        :options="[
+          { value: 'popular', label: 'Popular in the circle' },
+          { value: 'rating', label: 'Highest rated' },
+          { value: 'newest', label: 'Newest releases' },
+          { value: 'title', label: 'Title, A to Z' },
+        ]"
+      >
+        <template #icon
+          ><SlidersHorizontal :size="16" aria-hidden="true"
+        /></template>
+      </ChoiceMenu>
     </div>
     <div class="genre-filters" role="group" aria-label="Filter by genre">
       <button
