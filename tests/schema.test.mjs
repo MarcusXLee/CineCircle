@@ -22,12 +22,18 @@ async function testDatabase(t) {
 const fixture = [
   "INSERT INTO users(user_id,username,password_hash) VALUES (1,'first_member','fixture'),(2,'second_member','fixture')",
   "INSERT INTO user_email(user_id,email) VALUES (1,'first@example.test'),(1,'alternate@example.test')",
+  "INSERT INTO regular_user(user_id) VALUES (1),(2)",
   "INSERT INTO movie(movie_id,title,duration,language) VALUES (1,'Test Film',90,'English')",
   "INSERT INTO review(user_id,movie_id,rating) VALUES (1,1,7),(2,1,8)",
   "INSERT INTO cinema(cinema_id,cinema_name,district,street) VALUES (1,'Test Cinema','Central','Test Street')",
   "INSERT INTO hall VALUES (1,1,'Hall One',8),(1,2,'Hall Two',8)",
   "INSERT INTO seat VALUES (1,1,1,'A1','standard'),(1,2,1,'A1','standard')",
   "INSERT INTO follows(follower_id,followed_id) VALUES (1,2)",
+  "INSERT INTO screening VALUES (1,1,1,1,'2026-12-01 13:00:00','2026-12-01 14:30:00')",
+  "INSERT INTO screening_seat VALUES (1,1,1,1,1,'booked')",
+  "INSERT INTO ticket(ticket_id,user_id,screening_id,screening_seat_id,price) VALUES (1,1,1,1,70)",
+  "INSERT INTO discount VALUES (1,'Weekday matinee',8),(2,'Student',10)",
+  "INSERT INTO ticket_discount VALUES (1,1)",
 ];
 
 async function rejectInvalidWrites(pool) {
@@ -42,6 +48,7 @@ async function rejectInvalidWrites(pool) {
       "uq_review_user_movie",
     ],
     ["INSERT INTO seat VALUES (1,1,2,'A1','standard')", "uq_seat_number"],
+    ["INSERT INTO ticket_discount VALUES (1,2)", "uq_td_ticket"],
   ];
   for (const [sql, name] of duplicates) {
     await assert.rejects(pool.query(sql), {
@@ -55,9 +62,26 @@ async function rejectInvalidWrites(pool) {
     ),
     { code: "ER_CHECK_CONSTRAINT_VIOLATED", message: /chk_no_self_follow/ },
   );
+  // Regular and premium are disjoint: a member is only in the table matching users.user_type.
+  await assert.rejects(
+    pool.query(
+      "INSERT INTO premium_user(user_id,start_date,expiry_date,discount_rate) VALUES (1,'2026-01-01','2026-12-31',0.8)",
+    ),
+    { code: "ER_NO_REFERENCED_ROW_2", message: /fk_premium_user_type/ },
+  );
+  await assert.rejects(
+    pool.query("UPDATE users SET user_type='premium' WHERE user_id=1"),
+    { code: "ER_ROW_IS_REFERENCED_2", message: /fk_regular_user_type/ },
+  );
+  await assert.rejects(
+    pool.query(
+      "INSERT INTO users(username,password_hash,user_type) VALUES ('third_member','fixture','gold')",
+    ),
+    { code: "ER_CHECK_CONSTRAINT_VIOLATED", message: /chk_users_type/ },
+  );
 }
 
-test("fresh databases enforce the five revised rules while accepting valid rows", async (t) => {
+test("fresh databases enforce the revised rules and disjoint memberships while accepting valid rows", async (t) => {
   const { name, pool } = await testDatabase(t);
   await initializeDatabase(name);
   for (const sql of fixture) await pool.query(sql);
@@ -77,8 +101,29 @@ test("legacy setup stops at conflicts, then upgrades in place and tolerates repe
   );
   for (const sql of fixture) await pool.query(sql);
 
+  // A member who is both regular and premium stops setup before anything changes.
+  await pool.query(
+    "INSERT INTO users(user_id,username,password_hash) VALUES (3,'premium_member','fixture'),(4,'untyped_member','fixture')",
+  );
+  await pool.query(
+    "INSERT INTO premium_user VALUES (3,'2026-01-01','2027-12-31',0.8),(2,'2026-01-01','2027-12-31',0.8)",
+  );
+  await assert.rejects(
+    initializeDatabase(name),
+    /Members 2 are both regular and premium/,
+  );
+  const [typeBefore] = await pool.query(
+    "SHOW COLUMNS FROM users LIKE 'user_type'",
+  );
+  assert.equal(typeBefore.length, 0);
+  await pool.query("DELETE FROM premium_user WHERE user_id=2");
+
   await pool.query("INSERT INTO follows(follower_id,followed_id) VALUES (2,2)");
-  await assert.rejects(initializeDatabase(name), /chk_no_self_follow/);
+  await pool.query("INSERT INTO ticket_discount VALUES (1,2)");
+  await assert.rejects(
+    initializeDatabase(name),
+    /chk_no_self_follow.*uq_td_ticket|uq_td_ticket.*chk_no_self_follow/,
+  );
   const [beforeUpgrade] = await pool.query(
     "SHOW INDEX FROM users WHERE Key_name='uq_users_username'",
   );
@@ -96,6 +141,7 @@ test("legacy setup stops at conflicts, then upgrades in place and tolerates repe
     "Conflicting data must be retained for the owner to resolve.",
   );
   await pool.query("DELETE FROM follows WHERE follower_id=2 AND followed_id=2");
+  await pool.query("DELETE FROM ticket_discount WHERE discount_id=2");
 
   const snapshotSql = "SELECT * FROM review ORDER BY review_id";
   const [before] = await pool.query(snapshotSql);
@@ -114,6 +160,20 @@ test("legacy setup stops at conflicts, then upgrades in place and tolerates repe
   assert.equal(likes.length, 1);
   const [bookmarks] = await pool.query("SHOW TABLES LIKE 'list_bookmark'");
   assert.equal(bookmarks.length, 1);
+  // Each member's type matches their subtype row; a member with none became regular.
+  const [types] = await pool.query(
+    `SELECT u.user_id AS id,u.user_type AS type,r.user_id IS NOT NULL AS regular,p.user_id IS NOT NULL AS premium
+     FROM users u LEFT JOIN regular_user r USING(user_id) LEFT JOIN premium_user p USING(user_id) ORDER BY u.user_id`,
+  );
+  assert.deepEqual(
+    types.map((t) => [t.id, t.type, t.regular, t.premium]),
+    [
+      [1, "regular", 1, 0],
+      [2, "regular", 1, 0],
+      [3, "premium", 0, 1],
+      [4, "regular", 1, 0],
+    ],
+  );
 });
 
 test("a database from the first comments release gains replies and comment likes in place", async (t) => {

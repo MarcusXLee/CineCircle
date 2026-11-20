@@ -4,6 +4,11 @@ export const state = reactive({
   ready: false,
   authOpen: false,
   authMode: "login",
+  premiumOpen: false,
+  // The premium offer, as the server prices it (replaced by /session).
+  premiumPlan: { percentOff: 20, months: 12 },
+  // The shared demo account and the last day of its membership (replaced by /session).
+  demo: { username: "mia", premiumUntil: null },
   toast: null,
   confirmation: null,
   // Counts notification links followed to the page already showing, which change nothing
@@ -41,7 +46,10 @@ export async function api(path, options = {}) {
 }
 export async function refreshSession() {
   try {
-    state.user = (await api("/session")).user;
+    const session = await api("/session");
+    state.user = session.user;
+    state.premiumPlan = session.premiumPlan;
+    state.demo = session.demo;
   } finally {
     state.ready = true;
   }
@@ -68,6 +76,33 @@ export function finishAuth(user) {
   resumeAfterSignIn = null;
   state.user = user;
   state.authOpen = false;
+  resume?.();
+}
+// A premium membership in its last week (from the day the bell says it ends), which can be
+// renewed for another term.
+export function membershipEnding(user) {
+  if (!user?.premium || !user.expiryDate) return false;
+  const week = new Date(todayHK() + "T12:00:00Z");
+  week.setUTCDate(week.getUTCDate() + 7);
+  return user.expiryDate <= week.toISOString().slice(0, 10);
+}
+let resumeAfterPremium = null;
+// Offers premium membership to a signed-in member (a visitor signs in first); `resume` runs
+// once they have upgraded.
+export function openPremium(resume = null) {
+  if (!signedIn(() => !state.user.premium && openPremium(resume))) return;
+  resumeAfterPremium = resume;
+  state.premiumOpen = true;
+}
+export function closePremium() {
+  resumeAfterPremium = null;
+  state.premiumOpen = false;
+}
+export function finishPremium(user) {
+  const resume = resumeAfterPremium;
+  resumeAfterPremium = null;
+  state.user = user;
+  state.premiumOpen = false;
   resume?.();
 }
 // Appends the next page of data[key] from `path`; data.more[key] says if more remain.

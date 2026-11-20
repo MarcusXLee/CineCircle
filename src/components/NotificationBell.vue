@@ -9,6 +9,7 @@ import {
   Clock,
   Heart,
   Star,
+  Sparkles,
 } from "@lucide/vue";
 import {
   api,
@@ -18,6 +19,7 @@ import {
   dateLabel,
   timeLabel,
   parseDate,
+  todayHK,
 } from "../api";
 
 // The notification centre: a bell with an unread count and a panel of recent activity.
@@ -40,9 +42,17 @@ const icons = {
   follow: UserPlus,
   ticket: Ticket,
   reminder: Clock,
+  membership: Sparkles,
 };
 // Kinds that also pop up as a toast when they arrive; likes and bookings stay in the panel.
-const popUp = new Set(["comment", "reply", "review", "follow", "reminder"]);
+const popUp = new Set([
+  "comment",
+  "reply",
+  "review",
+  "follow",
+  "reminder",
+  "membership",
+]);
 
 function describe(n) {
   const who = displayName(n.actor);
@@ -89,6 +99,18 @@ function describe(n) {
       text: `${count === "1" ? "Your ticket" : `Your ${count} tickets`} for ${n.movieTitle} ${count === "1" ? "is" : "are"} booked`,
       quote: `${dateLabel(start)} at ${timeLabel(start)}`,
       to: "/circle?tab=tickets",
+    };
+  }
+  if (n.kind === "membership") {
+    const ended = n.detail < todayHK();
+    return {
+      text: ended
+        ? "Your premium membership has ended"
+        : `Your premium membership ends on ${dateLabel(n.detail, true)}`,
+      quote: ended
+        ? "Renew in My circle for member prices again."
+        : "Renew in My circle to keep your member price.",
+      to: "/circle",
     };
   }
   const [time, cinema] = n.detail.split("|");

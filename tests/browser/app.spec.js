@@ -478,3 +478,149 @@ test("a film page can start a new list with that film", async ({ page }) => {
     .getByRole("button", { name: "Delete", exact: true })
     .click();
 });
+test("members can go premium when joining, in their circle, and at checkout", async ({
+  page,
+}) => {
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  // Joining as premium: the corner shows the membership straight away.
+  await page.goto("/circle");
+  await page.getByRole("button", { name: "Join the circle" }).click();
+  await page.getByLabel("Username").fill("premium_from_start");
+  await page.getByLabel("Email address").fill("premium.start@example.test");
+  await page.getByLabel("Password").fill("Cinema2026!");
+  await page.getByRole("checkbox", { name: /Start with Premium/ }).check();
+  await page.getByRole("button", { name: "Create account" }).click();
+  await expect(page.locator(".membership-banner")).toContainText(
+    "Your premium membership gives you 20% off",
+  );
+  await page.getByRole("button", { name: "Sign out" }).click();
+  // A regular member sees the member price at checkout and upgrades there.
+  await page.goto("/circle");
+  await page.getByRole("button", { name: "Join the circle" }).click();
+  await page.getByLabel("Username").fill("upgrades_later");
+  await page.getByLabel("Email address").fill("upgrades.later@example.test");
+  await page.getByLabel("Password").fill("Cinema2026!");
+  await page.getByRole("button", { name: "Create account" }).click();
+  await expect(page.getByRole("button", { name: /Go premium/ })).toBeVisible();
+  await page.goto("/screenings/1");
+  await page.locator(".seat:not([disabled])").first().click();
+  const upsell = page.locator(".premium-upsell");
+  await expect(upsell).toBeVisible();
+  const memberPrice = (await upsell.locator("strong").textContent()).trim();
+  await upsell.getByRole("button", { name: "Go premium" }).click();
+  await page.getByRole("button", { name: "Become premium" }).click();
+  await expect(page.getByTestId("booking-total")).toHaveText(memberPrice);
+  await expect(upsell).toHaveCount(0);
+  await expect(page.locator(".member-price-note")).toContainText(
+    "Your member price is applied automatically.",
+  );
+  await page.goto("/circle");
+  await expect(page.locator(".membership-banner")).toContainText(
+    "Your premium membership gives you 20% off",
+  );
+  expect(errors).toEqual([]);
+});
+test("booking warns that tickets are not refundable; members are found by name and follower lists open", async ({
+  page,
+}) => {
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto("/screenings/1");
+  await expect(page.locator(".no-refund")).toHaveCount(0);
+  await page.locator(".seat:not([disabled])").first().click();
+  await expect(page.locator(".booking-summary .no-refund")).toHaveText(
+    "Tickets can’t be refunded or exchanged once booked.",
+  );
+  await page.goto("/community");
+  const search = page.getByRole("searchbox", { name: "Find a member by name" });
+  await search.fill("ale");
+  await expect(page.locator(".members-panel .member-row")).toHaveCount(1);
+  await expect(page.locator(".members-panel .member-row")).toContainText(
+    "Alex",
+  );
+  await search.fill("nobody_here");
+  await expect(page.locator(".member-none")).toBeVisible();
+  await page.goto("/members/1");
+  await page.getByRole("button", { name: /followers?$/ }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.locator(".member-row").first()).toBeVisible();
+  const first = (
+    await dialog.locator(".member-row strong").first().textContent()
+  ).trim();
+  await dialog.locator(".member-row a").first().click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(first);
+  expect(errors).toEqual([]);
+});
+test("account settings alert on names in use and mismatched passwords, and deleting takes two confirmations", async ({
+  page,
+}) => {
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto("/circle");
+  await page.getByRole("button", { name: "Join the circle" }).click();
+  await page.getByLabel("Username").fill("settings_tryout");
+  await page.getByLabel("Email address").fill("settings.tryout@example.test");
+  await page.getByLabel("Password").fill("Cinema2026!");
+  await page.getByRole("button", { name: "Create account" }).click();
+  await page.getByRole("link", { name: "Settings" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Account settings" }),
+  ).toBeVisible();
+  const name = page.locator(".settings-card").first().getByRole("textbox");
+  await name.fill("alex");
+  await page.getByRole("button", { name: "Save username" }).click();
+  await expect(page.locator(".toast-message")).toContainText(
+    "is already taken",
+  );
+  await name.fill("settings_renamed");
+  await page.getByRole("button", { name: "Save username" }).click();
+  await expect(page.locator(".toast-message")).toContainText(
+    "You’re now Settings_renamed.",
+  );
+  await page.getByLabel("Current password").fill("Cinema2026!");
+  await page.getByLabel(/^New password/).fill("Popcorn2026!");
+  await page.getByLabel(/^Confirm new password/).fill("Popcorn2026?");
+  await page.getByRole("button", { name: "Change password" }).click();
+  await expect(page.locator(".toast-message")).toContainText(
+    "The new passwords don’t match.",
+  );
+  await page.getByRole("button", { name: "Delete account…" }).click();
+  await page.getByRole("button", { name: "Keep my account" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByRole("button", { name: "Delete account…" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("dialog").getByLabel("Password").fill("Cinema2026!");
+  await page.getByRole("button", { name: "Delete permanently" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator(".toast-message")).toContainText(
+    "Your account has been deleted.",
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page
+    .getByRole("button", { name: "Sign in", exact: true })
+    .first()
+    .click();
+  await expect(page.getByRole("dialog")).toContainText(
+    /Explore with a local premium demo account before .+ 20\d\d, when its membership ends\./,
+  );
+  await page.getByRole("button", { name: "Continue as Mia" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  for (const route of ["/settings", "/circle"]) {
+    await page.goto(route);
+    await page.waitForLoadState("networkidle");
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+      route,
+    ).toBe(true);
+  }
+  await page.goto("/settings");
+  await expect(page.locator(".settings-demo")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Delete account…" }),
+  ).toBeDisabled();
+  expect(errors).toEqual([]);
+});

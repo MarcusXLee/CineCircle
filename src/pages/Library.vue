@@ -10,6 +10,7 @@ import {
   Ticket,
   Film,
   ArrowUpRight,
+  Settings,
 } from "@lucide/vue";
 import {
   state,
@@ -19,6 +20,8 @@ import {
   dateLabel,
   parseDate,
   openAuth,
+  openPremium,
+  membershipEnding,
 } from "../api";
 import PosterCard from "../components/PosterCard.vue";
 import ListCard from "../components/ListCard.vue";
@@ -129,10 +132,19 @@ function newListSaved(list) {
           <p class="context-label">My circle</p>
           <h1>{{ displayName(state.user.username) }}’s corner.</h1>
           <p class="muted">The films you’ve seen. The ones still waiting.</p>
+          <RouterLink
+            :to="`/members/${state.user.userId}`"
+            class="quiet-link profile-public"
+            >Your profile and followers <ArrowUpRight :size="15"
+          /></RouterLink>
         </div>
-        <button class="quiet-link signout" @click="logout">
-          <LogOut :size="16" />Sign out
-        </button>
+        <div class="corner-actions">
+          <RouterLink to="/settings" class="quiet-link signout"
+            ><Settings :size="16" />Settings</RouterLink
+          ><button class="quiet-link signout" @click="logout">
+            <LogOut :size="16" />Sign out
+          </button>
+        </div>
       </section>
       <div v-if="state.user.premium" class="membership-banner">
         <Sparkles :size="22" />
@@ -141,13 +153,50 @@ function newListSaved(list) {
           <p>
             Your premium membership gives you
             {{ Math.round((1 - state.user.discountRate) * 100) }}% off eligible
-            tickets. Valid until
+            tickets.
+            {{ membershipEnding(state.user) ? "It ends on" : "Valid until" }}
             {{ dateLabel(state.user.expiryDate + " 12:00:00", true) }}.
           </p>
         </div>
-        <RouterLink to="/cinemas" class="quiet-link"
+        <button
+          v-if="membershipEnding(state.user)"
+          type="button"
+          class="quiet-link premium-cta"
+          @click="openPremium()"
+        >
+          Renew premium <ArrowUpRight :size="17" />
+        </button>
+        <RouterLink v-else to="/cinemas" class="quiet-link"
           >Find a screening <Ticket :size="17"
         /></RouterLink>
+      </div>
+      <div v-else class="membership-banner">
+        <Sparkles :size="22" />
+        <div>
+          <strong>{{
+            state.user.expiryDate
+              ? "Your premium membership has ended."
+              : "Make every screening a little lighter."
+          }}</strong>
+          <p v-if="state.user.expiryDate">
+            It ran until
+            {{ dateLabel(state.user.expiryDate + " 12:00:00", true) }}. Renew
+            for another {{ state.premiumPlan.months }} months of member prices.
+          </p>
+          <p v-else>
+            Premium members take {{ state.premiumPlan.percentOff }}% off their
+            tickets for {{ state.premiumPlan.months }} months, applied at
+            checkout.
+          </p>
+        </div>
+        <button
+          type="button"
+          class="quiet-link premium-cta"
+          @click="openPremium()"
+        >
+          {{ state.user.expiryDate ? "Renew premium" : "Go premium" }}
+          <ArrowUpRight :size="17" />
+        </button>
       </div>
       <Tabs
         v-model="tab"

@@ -41,16 +41,19 @@ export async function seedDatabase(pool) {
       [4, "jules", "jules@cinecircle.local"],
     ]) {
       await c.execute(
-        "INSERT INTO users(user_id,username,password_hash) VALUES(?,?,?)",
-        [userId, username, hash],
+        "INSERT INTO users(user_id,username,password_hash,user_type) VALUES(?,?,?,?)",
+        [userId, username, hash, userId === 1 ? "premium" : "regular"],
       );
       await c.execute("INSERT INTO user_email VALUES(?,?)", [userId, email]);
       if (userId === 1)
         await c.execute(
-          "INSERT INTO premium_user VALUES(?,CURRENT_DATE,DATE_ADD(CURRENT_DATE,INTERVAL 1 YEAR),0.8)",
+          "INSERT INTO premium_user(user_id,start_date,expiry_date,discount_rate) VALUES(?,CURRENT_DATE,DATE_SUB(DATE_ADD(CURRENT_DATE,INTERVAL 12 MONTH),INTERVAL 1 DAY),0.8)",
           [userId],
         );
-      else await c.execute("INSERT INTO regular_user VALUES(?)", [userId]);
+      else
+        await c.execute("INSERT INTO regular_user(user_id) VALUES(?)", [
+          userId,
+        ]);
     }
     const genres = [...new Set(films.flatMap((f) => f.genres))];
     for (let i = 0; i < genres.length; i++)
@@ -454,7 +457,7 @@ async function addClassicCircle(c) {
       ids[name],
       `${name}@cinecircle.local`,
     ]);
-    await c.execute("INSERT INTO regular_user VALUES(?)", [ids[name]]);
+    await c.execute("INSERT INTO regular_user(user_id) VALUES(?)", [ids[name]]);
   }
   const reviewIds = [];
   // Dated before the original demo reviews, so the newest reviews stay on top.

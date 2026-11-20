@@ -203,3 +203,45 @@ Plan: docs/superpowers/plans/2026-11-11-local-app.md
   - Following again (after unfollowing) never popped up: the bell recognised it by kind, item and person. The key now includes the time.
   - Times are kept to the second, so an item arriving in the same second as the newest one shown was treated as read. The bell remembers which items it showed from that second, and others from it still count as new.
 - Evidence: 28/28 API and schema tests (new: read up to the newest seen, never backwards, re-follow, late reminder), 14/14 browser tests, and the scripted walk-through at 1440 px and 390 px passing repeatedly.
+
+### One discount per ticket; one ER diagram
+
+- The ER diagram drew Offers as many-to-many, but pricing applies only the best offer. Offers is now many-to-one (arrow into Discount): a discount can apply to many tickets, a ticket uses at most one. `ticket_discount` gains `UNIQUE(ticket_id)` (`uq_td_ticket`), added to existing databases on the next setup with the same conflict check as the other revised rules.
+- The supplied PNG and `CineCircle_ER_updated.png` are replaced by a single `CineCircle_ER.png` (the supplied diagram with the Offers arrow and a footnote, plus the community panel).
+- Evidence: schema tests cover a second discount on one ticket (rejected) on a fresh database and after upgrading a legacy one, and an upgrade stopping on an existing duplicate.
+
+### Disjoint regular and premium members; upgrading
+
+- Kept the ER's disjoint ISA (premium's extra abilities come from User through inheritance; an overlapping `regular_user` would simply list everyone) and enforced it: `users.user_type` with `UNIQUE(user_id, user_type)`; each subtype table carries its fixed `user_type` (CHECK) and a composite foreign key to `users (user_id, user_type)`. Completeness is kept by the code that creates and moves members, each in one transaction.
+- `POST /me/membership` upgrades (remove the regular row, change the type, add the premium row) or renews an ended membership in place; `POST /auth/register` takes `premium`; members whose membership ended move back to regular at server start and hourly. Plan: 20% off for 12 months (`premiumPlan`). Quotes for regular members include `memberTotal`.
+- Interface: "Start with Premium" when joining; a Go premium / Renew banner in My circle; at checkout, "Premium members pay HK$… for these seats" with Go premium, after which the total is repriced. One shared dialog (`PremiumModal.vue`) in the existing gilt-on-dark style; the checkout note uses the ticket's claret ink.
+- Upgrade path: a member in both tables stops setup before any change; otherwise types are set from the existing rows and members in neither become regular. Positional `INSERT ... VALUES` into the subtype tables now name their columns.
+- ER: `user_type` labelled beside the User–ISA line and added to User in the additions panel.
+- Evidence: 29/29 API and schema tests (new: upgrade, renew, expiry, joining as premium, member price; schema: disjointness rejected three ways, upgrade conflict and alignment), 15/15 browser tests (join as premium, upgrade at checkout reprices), screenshots at 1440 px and 390 px.
+
+### Feature list, refund notice, membership edge cases, other gaps
+
+- `CineCircle_Features.md` (made writable for the edit, read-only again) now covers comments and replies, bookmarks, notifications, finding members and follower lists, the refund rule, and the premium options.
+- Booking: once seats are chosen, the ticket says "Tickets can’t be refunded or exchanged once booked." above Confirm booking; the phone booking bar says "Non-refundable once booked".
+- Membership edge cases fixed: a membership could not be renewed before it ended (the API answered 409), so a member had no way to keep their price; now, in its last week, renewing adds 12 months from its last day, and My circle shows Renew premium then. Nothing told a member their membership was ending: the bell now says so a week before (and that it has ended, until the hourly move back to regular). Upgrading from a second tab (409) refreshes the member and closes the dialog instead of leaving a stale offer. The dialog closes if the signed-in member changes. Renewing an ended membership also restores a missing premium row. Mia's seeded term matches the 12-month plan.
+- Other gaps closed: members could only be found by paging through the list, so the Community members panel has a search by name; follower counts were not clickable, so a profile's followers and following open as a list with follow buttons; My circle had no link to your own profile, so it now has one.
+- Evidence: 30/30 API and schema tests (new: last-week renewal and its notice, member search including LIKE wildcards, follower lists), 16/16 browser tests (refund notice, member search, follower list), screenshots at 1440 px and 390 px.
+
+### Account settings
+
+- New page `/settings` (Settings in My circle): username, email, password, membership status, delete account. Username and email changes are refused with an alert (inline and as a toast) when another member has them, in any case. Password needs the current one and the new one twice (checked in the browser and on the server), must differ from the current one, and signs out the member's other sessions.
+- Delete account: two confirmations (what will be removed, including any upcoming tickets cancelled without refund; then the password and "Delete permanently"). One transaction removes everything the member owns, including other members' replies under the member's comments and conversations under the member's reviews; seats on the member's tickets become available; every session of the member ends; the name and email can be registered again.
+- The shared demo account `mia` cannot be renamed, change email or password, or be deleted (403; the page explains and disables the forms). The sign-in dialog says "Explore with a local premium demo account before <date>, when its membership ends" (`/session` returns `demo.premiumUntil`), or drops the date when Mia is not premium.
+- Evidence: 32/32 API and schema tests (new: settings with duplicates, wrong/mismatched/same passwords, other sessions signed out, demo account refused; deletion removing 16 owned rows plus others' replies, wrong password changing nothing, freed seat, reusable name), 17/17 browser tests (duplicate-name alert, mismatch alert, two-step delete, demo note, no horizontal scroll at 390 px).
+
+### Deleted accounts kept anonymous
+
+- Deleting an account no longer deletes its tickets or frees their seats. The `users` row stays as an anonymous record so tickets keep a buyer: name `deleted-member-<id>` (hyphens, so no one can register it), a password that matches nothing, no email, regular type, `users.deleted_date` set. Everything personal and social is still removed as before. Members lists, search, profiles, follows, sign-in and sessions ignore rows with `deleted_date`. The old name and email can be registered again.
+- Schema: `users.deleted_date DATETIME NULL`, added in place to existing databases. ER: `deleted_date` on User in the additions panel.
+- The delete dialog now says tickets stay as sales records without your name or email, and upcoming ones can't be used or refunded afterwards.
+- Evidence: 32/32 API and schema tests (the deletion test now checks the anonymous record, the kept ticket and still-sold seat, and that the record is hidden from members, search, profile and follow), 17/17 browser tests.
+
+### ER migration and README rewrite
+
+- ER: migrated the team's two changes from their copy of the diagram: User's `password` attribute is now `password_hash` (matching the column), and in the additions panel Likes leaves User on its own line instead of branching off the line to Bookmarks.
+- README rewritten as an introduction to the project for the marking criteria: functionality and CRUD map, architecture, ER diagram and ER-to-table mapping, enforced rules, key SQL statements, install and run (Docker, Windows, macOS, terminal), database setup, configuration and initial data with row counts, a demo tour, tests and project structure. Screenshots in `docs/images/`.

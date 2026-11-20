@@ -8,7 +8,7 @@ import {
   trimPage,
 } from "../auth.mjs";
 import { transaction } from "../db.mjs";
-import { basePrice, presentation } from "../catalog.mjs";
+import { basePrice, presentation, premiumPlan } from "../catalog.mjs";
 
 const screeningSelect = `SELECT s.screening_id AS screeningId,s.movie_id AS movieId,s.cinema_id AS cinemaId,s.hall_id AS hallId,s.start_time AS startTime,s.end_time AS endTime,m.title AS movieTitle,m.duration,c.cinema_name AS cinemaName,c.district,c.street,c.building,h.hall_name AS hallName,
   (SELECT COUNT(*) FROM screening_seat ss WHERE ss.screening_id=s.screening_id AND ss.status='available' AND NOT EXISTS(SELECT 1 FROM ticket t WHERE t.screening_id=ss.screening_id AND t.screening_seat_id=ss.screening_seat_id)) AS available
@@ -104,15 +104,18 @@ async function quote(c, screening, seats, userId) {
     "SELECT discount_id AS discountId,discount_type AS label,price AS amount FROM discount WHERE discount_type='Weekday matinee' ORDER BY price DESC LIMIT 1",
   );
   const fixed = eligible ? discounts[0] : null;
+  // The member saving at a payable rate, and the better of it and the fixed offer.
+  const rateSaving = (original, rate) =>
+    rate ? Math.round(original * (1 - rate) * 100) / 100 : 0;
+  const bestSaving = (original, rate) =>
+    Math.min(
+      original,
+      Math.max(rateSaving(original, rate), fixed?.amount || 0),
+    );
   const items = seats.map((seat) => {
     const original = basePrice(screening, seat),
-      memberSaving = user.premium
-        ? Math.round(original * (1 - user.discountRate) * 100) / 100
-        : 0;
-    const saving = Math.min(
-      original,
-      Math.max(memberSaving, fixed?.amount || 0),
-    );
+      memberSaving = rateSaving(original, user.premium && user.discountRate);
+    const saving = bestSaving(original, user.premium && user.discountRate);
     const member = memberSaving > 0 && memberSaving >= (fixed?.amount || 0);
     return {
       ...seat,
@@ -127,8 +130,18 @@ async function quote(c, screening, seats, userId) {
       discountId: !member && saving > 0 ? fixed?.discountId : null,
     };
   });
+  // What a premium member would pay for the same seats, shown to regular members.
+  const memberTotal = user.premium
+    ? null
+    : Math.round(
+        seats.reduce((n, seat) => {
+          const original = basePrice(screening, seat);
+          return n + original - bestSaving(original, premiumPlan.discountRate);
+        }, 0) * 100,
+      ) / 100;
   return {
     items,
+    memberTotal,
     total: Math.round(items.reduce((n, s) => n + s.price, 0) * 100) / 100,
     subtotal: items.reduce((n, s) => n + s.original, 0),
     savings: Math.round(items.reduce((n, s) => n + s.saving, 0) * 100) / 100,

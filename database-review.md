@@ -1,6 +1,6 @@
 # 数据库评审记录与后续修订建议
 
-初版评审日期为 2026-11-11。当天网站按原 ER 图和原 SQL 实现。2026-11-18 改用修订版 `CineCircle_MySQL.sql`（原文件同名替换，旧版保存在 `tests/fixtures/CineCircle_MySQL_before_revision.sql`），保留原 ER 图，数据库正式强制下表中标为已落实的五条规则。
+初版评审日期为 2026-11-11。当天网站按原 ER 图和原 SQL 实现。2026-11-18 改用修订版 `CineCircle_MySQL.sql`（原文件同名替换，旧版保存在 `tests/fixtures/CineCircle_MySQL_before_revision.sql`），数据库正式强制下表中标为已落实的规则（共六条，含 2026-11-19 新增的“每张票最多一个优惠”）。
 
 原始 SQL SHA-256：`7342e5c743649974cd2773b0476d2f97c4a57f78946032ee18a5f09771ecdb03`。
 原始 ER PNG SHA-256：`34351d61b5d5e319e48807603b95b87fb724b958eea5a86f7ff848dba7fb9682`。
@@ -18,14 +18,14 @@
 | 事项          | 原设计缺口                                                            | 本地实现                                                                                        | 建议的数据库修订                                                           |
 | ------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | 登录标识      | username 不唯一；email 只在用户内部唯一                               | 注册检查用户名和邮箱，重复时给出提示                                                            | 已落实 `UNIQUE(username)` 和 `UNIQUE(email)`。一个用户仍可拥有多个不同邮箱 |
-| 普通/高级用户 | ER 的互斥与完备性未在两张子表中实现                                   | 注册只写 regular_user；优惠按 premium_user 当前有效期判断；没有会员升级接口                     | 选择 User + Membership 模型，或完整落实 ISA 的互斥、覆盖和到期转换         |
+| 普通/高级用户 | ER 的互斥与完备性未在两张子表中实现                                   | 2026-11-19 起：注册时可选普通或高级；个人页和结账页可升级；到期后自动转回普通                   | 已落实互斥：`user_type` 判别列加复合外键（见文末）。完备性由事务内的注册、升级和到期处理保证 |
 | 重复评分      | 同人同电影可有多条 Review                                             | 写影评锁住作者行，同电影更新现有记录                                                            | 已落实 `UNIQUE(user_id,movie_id)`。可在 ER 图旁注明每人每片最多一条影评    |
 | 自己关注自己  | 无 CHECK                                                              | API 拒绝                                                                                        | 已落实 `CHECK(follower_id<>followed_id)`。可在 ER 图旁注明关注双方必须不同 |
 | 重复座位号    | 同影厅 seat_number 无唯一约束                                         | 固定种子数据生成唯一 A1–F8；无座位管理入口                                                      | 已落实 `UNIQUE(cinema_id,hall_id,seat_number)`                             |
 | 片单排序      | 同片单 position 可重复                                                | 锁片单行后重排，验证提交的电影集合与数据库一致                                                  | 增加对应位置唯一约束；设计能避开即时唯一检查冲突的重排流程                 |
 | 片单局部编号  | list_id 没有自动分配机制                                              | 锁用户行后计算该用户的 MAX(list_id)+1                                                           | 保留复合键并说明分配机制，或评估全局代理主键                               |
 | 票价来源      | Screening/Screening_Seat 没有预订前票价                               | catalog.mjs 中明确本地票价规则，由后端计算                                                      | 将场次基础价和座位价差正式建模                                             |
-| 优惠语义      | discount.price 和 premium.discount_rate 语义未定义；缺适用范围/有效期 | price=固定减免，discount_rate=应付比例；固定优惠适用规则在配置；不叠加，取最佳                  | 明确定义优惠种类、数值、资格、期限和叠加规则；保存必要的历史快照           |
+| 优惠语义      | discount.price 和 premium.discount_rate 语义未定义；缺适用范围/有效期 | price=固定减免，discount_rate=应付比例；固定优惠适用规则在配置；不叠加，取最佳                  | 已落实 `UNIQUE(ticket_id)`（每张票最多一个优惠）。仍需定义优惠资格、期限并保存历史快照 |
 | 预留座位      | reserved 无预留者/到期字段                                            | 不写 reserved；选座仅为浏览器当前选择，确认时立即订票                                           | 若增加预留，建 Reservation/持有人/到期时间及释放流程                       |
 | 出票与状态    | 可写入票但 status 仍为 available                                      | 同一事务内出票、关联优惠和更新 booked；查询已有票时优先显示已售                                 | 评估从有效票派生售出状态，或数据库级的受控维护机制                         |
 | 排片重叠      | 只检查单行 end>start，无法防跨行冲突                                  | 种子排片相隔4小时；补排的早场在 12:45 前结束，避开 13:00 场；无排片编辑入口；测试检查同厅无重叠 | 用锁影厅的过程检查重叠，覆盖 INSERT 和 UPDATE，包括清场时间                |
@@ -35,7 +35,7 @@
 | 规范化        | screening_id 决定 cinema_id/hall_id，但 Screening_Seat 重复保存它们   | 保留复合外键和受控冗余，未宣称全库严格3NF                                                       | 列候选键/函数依赖；若要求严格3NF，重构标识并保住同厅约束                   |
 | 界面资料      | 无海报、导演、座位布局坐标                                            | 海报/导演为本地静态资料；座位行列解析固定的 A1–F8 编号                                          | 需要内容/影院管理时再增加正式属性和坐标                                    |
 
-新版 SQL 会直接拒绝上述五类无效写入。冲突排片、矛盾会员记录和出票状态等规则仍有待完善，见表中的对应建议。
+新版 SQL 会直接拒绝上述六类无效写入，以及同时属于两类会员的记录。冲突排片、矛盾会员记录和出票状态等规则仍有待完善，见表中的对应建议。
 
 ## 后续数据库修订原则
 
@@ -60,11 +60,11 @@
 
 ## 2026-11-18 新增：影评评论
 
-新增 `review_comment` 表（comment_id、review_id、user_id、comment_text、create_date），对应 ER 图中新实体 Comment：用户通过 Posts 发表评论，评论通过 On 属于某条影评；每条评论必须恰有一个作者和一条影评（完全参与），用户和影评可有任意多条评论。`comment_text` 有非空 CHECK，`(review_id, create_date)` 建索引以按时间读取会话。删除影评时在同一事务内先删评论与点赞。更新后的 ER 图见 `CineCircle_ER_updated.png`，原图保持不变。旧数据库在下次 setup 时补建此表。
+新增 `review_comment` 表（comment_id、review_id、user_id、comment_text、create_date），对应 ER 图中新实体 Comment：用户通过 Posts 发表评论，评论通过 On 属于某条影评；每条评论必须恰有一个作者和一条影评（完全参与），用户和影评可有任意多条评论。`comment_text` 有非空 CHECK，`(review_id, create_date)` 建索引以按时间读取会话。删除影评时在同一事务内先删评论与点赞。ER 图见 `CineCircle_ER.png`。旧数据库在下次 setup 时补建此表。
 
 ## 2026-11-18 新增：通知中心
 
-通知不单独建表：评论、回复、关注、购票和开场前一小时提醒都由现有表（review_comment、follows、ticket、screening）实时查询得出，避免冗余存储。只为 users 增加一个属性 `notifications_read_at`，记录用户最后查看通知的时间，用于计算未读数。ER 图中 User 增加该属性，见 `CineCircle_ER_updated.png`。旧数据库在下次 setup 时补加此列。
+通知不单独建表：评论、回复、关注、购票和开场前一小时提醒都由现有表（review_comment、follows、ticket、screening）实时查询得出，避免冗余存储。只为 users 增加一个属性 `notifications_read_at`，记录用户最后查看通知的时间，用于计算未读数。ER 图中 User 增加该属性，见 `CineCircle_ER.png`。旧数据库在下次 setup 时补加此列。
 
 ## 2026-11-18 新增：楼中楼回复、评论点赞、收藏片单
 
@@ -72,4 +72,27 @@
 - **评论点赞**：新表 `comment_like`（user_id、comment_id、like_date），对应 User 与 Comment 之间的多对多联系 Likes，结构与 review_like 一致；不能给自己的评论点赞。
 - **收藏片单**：新表 `list_bookmark`（user_id、owner_id、list_id、bookmark_date），对应 User 与弱实体 Film_List 之间的多对多联系 Bookmarks。因 film_list 主键为 (user_id, list_id)，收藏表用复合外键 (owner_id, list_id) 引用；CHECK 禁止收藏自己的片单。公开片单按收藏数排序；片单改为私密后对他人隐藏，删除片单时一并删除其收藏。
 - **关注的作用**：评论区中关注者的回复优先显示；关注对象在关注之后发布的影评会出现在通知中（同样由查询得出，不新增表）。
-- 现为 25 张表。旧数据库在下次 setup 时补建 comment_like、list_bookmark 并补加 parent_comment_id（先建唯一键，再建引用它的外键）。ER 图见 `CineCircle_ER_updated.png`。
+- 现为 25 张表。旧数据库在下次 setup 时补建 comment_like、list_bookmark 并补加 parent_comment_id（先建唯一键，再建引用它的外键）。ER 图见 `CineCircle_ER.png`。
+
+## 2026-11-19 修订：每张票最多一个优惠
+
+- 原 ER 图中 Offers 为多对多（Discount 与 Ticket 两侧均无箭头），但实现只取最优的一个优惠、不叠加。ER 图改为多对一：箭头指向 Discount，即一个优惠可用于多张票，一张票最多用一个优惠；两侧均为部分参与。
+- `ticket_discount` 增加 `UNIQUE(ticket_id)`（约束名 `uq_td_ticket`），由数据库保证上述规则。主键 `(ticket_id, discount_id)` 保持不变。旧数据库在下次 setup 时补建此约束；若已有一张票关联多个优惠，setup 会指出 `ticket_discount.uq_td_ticket` 并在修改前停止。
+- ER 图合并为一张 `CineCircle_ER.png`（原图加上 Offers 箭头和社区新增面板），不再单独保留原图。
+
+## 2026-11-19 修订：普通/高级用户互斥（ISA）
+
+- **为何保持互斥：** “高级用户拥有普通用户的全部功能”由 ISA 的继承实现——影评、片单、关注、购票等都挂在 User 上，所有外键都引用 `users`，没有表引用 `regular_user`。若改为可重叠，每个高级用户也会在 `regular_user` 中，该表就等于全部用户，不含任何信息。因此“普通”即“当前不是高级”，ER 图的 disjoint 是正确的；需要修改的是实现。
+- **数据库如何保证：** `users` 增加判别列 `user_type`（`CHECK IN ('regular','premium')`）和 `UNIQUE(user_id, user_type)`；`regular_user`、`premium_user` 各加 `user_type` 列，用 CHECK 固定为本表的值，并以复合外键 `(user_id, user_type)` 引用 `users`。因此一个用户只能出现在与其类型相符的子表中，不可能同时在两张表。原有的 `(user_id)` 外键保留。完备性（每个用户恰在一张子表）无法在 MySQL 中声明，由注册、升级和到期处理在事务中保证。
+- **升级不是“危险的先删后加”：** 升级在一个事务中锁住用户行，删除 `regular_user` 行、修改 `user_type`、插入 `premium_user` 行，要么全部完成，要么全部回滚；`user_id` 不变，也没有其他表引用子表，因此影评、片单、票务都不受影响。MySQL 不允许在 CHECK 用到的列上做级联更新，所以顺序必须是删除、更新、插入。
+- **到期：** 服务器启动时及每小时把到期日早于今天的高级用户以同样方式转回普通（会员起止日期不保留，这是互斥子表设计的代价）。在此之前，计价已按有效期把其视为普通用户；此时升级会在原记录上续期。
+- **升级入口：** 注册时可选“Start with Premium”；个人页（My circle）显示升级或续期横幅；结账时普通会员会看到同一座位的高级会员价并可直接升级，升级后总价立即按会员价重算。本演示不收款。
+- **旧数据库：** 下次 setup 时先检查是否有用户同时在两张子表中——若有，列出用户编号并在修改前停止；否则补加 `user_type` 列与约束，按现有子表设置类型，并把两张子表都不在的用户设为普通用户。
+- ER 图在 ISA 旁标注判别属性 `user_type`，并在新增面板中给 User 加上该属性，见 `CineCircle_ER.png`。
+
+## 2026-11-19 新增：账户设置与删除账户
+
+- 修改用户名、邮箱时先锁定用户行并检查是否已被他人使用（用户名不区分大小写），已占用则返回 409 并在页面弹出提示；数据库的 `UNIQUE(username)`、`UNIQUE(email)` 作为并发下的最后保障。修改密码需要当前密码和两次输入的新密码，成功后注销该用户在其他浏览器的会话。
+- 删除账户需两次确认（第二次需输入密码），在一个事务中删除：其评论及其下所有回复、其影评下的全部会话、相关点赞、影评、片单及其收藏、关注关系、想看与看过记录、邮箱和会员子表行。
+- **票务记录匿名保留：** Ticket 外键要求 user_id 非空，若删除用户行就必须删除其票，会丢失售票历史。因此 `users` 新增 `deleted_date`（可空）：删除账户时保留该用户行，但改为匿名——用户名改为 `deleted-member-<id>`（含连字符，注册规则不允许，因此不会与真实用户冲突），密码改为无法匹配的值，删除邮箱，类型改为普通用户，并记录 `deleted_date`。其票及座位状态保持不变（座位仍为已售），即符合表中“历史票务不要盲目级联”的建议。所有显示用户的查询（成员列表、搜索、个人页、关注、登录、会话）都排除 `deleted_date` 非空的行；原用户名和邮箱可以重新注册。ER 图中 User 增加属性 `deleted_date`。
+- 共享演示账户 mia 的名称、邮箱、密码不可修改，也不可删除，以免“Continue as Mia”失效。

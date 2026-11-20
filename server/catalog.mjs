@@ -309,6 +309,9 @@ export const pricingPolicy = {
   premiumSeatExtra: 25,
   currency: "HKD",
 };
+// Premium membership: pay 80% of the base price (discount_rate is the payable share) for 12
+// months from the day it starts. No payment is taken in this demo.
+export const premiumPlan = { discountRate: 0.8, months: 12 };
 export function basePrice(screening, seat) {
   const hour = Number(String(screening.startTime).slice(11, 13));
   return (

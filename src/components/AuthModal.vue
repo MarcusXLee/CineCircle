@@ -1,10 +1,20 @@
 <script setup>
 import { ref } from "vue";
+import { Sparkles } from "@lucide/vue";
 import Modal from "./Modal.vue";
-import { api, state, notify, displayName, finishAuth, closeAuth } from "../api";
+import {
+  api,
+  state,
+  notify,
+  displayName,
+  dateLabel,
+  finishAuth,
+  closeAuth,
+} from "../api";
 const username = ref(""),
   password = ref(""),
   email = ref(""),
+  premium = ref(false),
   busy = ref(false),
   error = ref("");
 async function submit(demo = false) {
@@ -16,11 +26,12 @@ async function submit(demo = false) {
       {
         method: "POST",
         body: demo
-          ? { username: "mia", password: "Cinema2026!" }
+          ? { username: state.demo.username, password: "Cinema2026!" }
           : {
               username: username.value,
               password: password.value,
               email: email.value,
+              premium: premium.value,
             },
       },
     );
@@ -84,6 +95,18 @@ function switchMode() {
         /><span v-if="state.authMode === 'register'" class="small muted"
           >At least 8 characters.</span
         ></label
+      ><label v-if="state.authMode === 'register'" class="premium-choice"
+        ><input v-model="premium" type="checkbox" /><Sparkles
+          :size="17"
+          aria-hidden="true"
+        /><span
+          ><strong>Start with Premium</strong>
+          <span class="small muted"
+            >{{ state.premiumPlan.percentOff }}% off your tickets for
+            {{ state.premiumPlan.months }} months. No payment in this demo; you
+            can also upgrade later.</span
+          ></span
+        ></label
       >
       <p v-if="error" class="form-error" role="alert">{{ error }}</p>
       <button class="button primary full" :disabled="busy">
@@ -106,7 +129,11 @@ function switchMode() {
         Continue as Mia
       </button>
       <p class="small muted center">
-        Explore with a local premium demo account.
+        {{
+          state.demo.premiumUntil
+            ? `Explore with a local premium demo account before ${dateLabel(state.demo.premiumUntil + " 12:00:00", true)}, when its membership ends.`
+            : "Explore with a local demo account."
+        }}
       </p></template
     >
     <p class="auth-switch">

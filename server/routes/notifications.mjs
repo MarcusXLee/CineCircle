@@ -12,6 +12,8 @@ import { requireUser, HttpError } from "../auth.mjs";
 // - ticket:      you booked tickets (one notice per screening and booking time)
 // - reminder:    a screening you hold tickets for starts within the hour (dated an hour before,
 //                or at the booking if that was later, so it is never older than the booking)
+// - membership:  your premium membership ends within a week (dated a week before its last day;
+//                gone once the member is moved back to regular)
 // focusId is the comment whose replies show the item, so a link opens that level.
 // users.notifications_read_at is the time of the newest notification the member has seen;
 // later ones are unread.
@@ -69,6 +71,11 @@ SELECT * FROM (
       GROUP BY screening_id) mine ON mine.screening_id = s.screening_id
     JOIN movie m ON m.movie_id = s.movie_id JOIN cinema c ON c.cinema_id = s.cinema_id
   WHERE s.start_time > NOW() AND s.start_time <= DATE_ADD(NOW(), INTERVAL 1 HOUR)
+  UNION ALL
+  SELECT 'membership', CAST(GREATEST(DATE_SUB(p.expiry_date, INTERVAL 7 DAY), p.start_date) AS DATETIME),
+    p.user_id, NULL, NULL, NULL, NULL, NULL, NULL, DATE_FORMAT(p.expiry_date, '%Y-%m-%d')
+  FROM premium_user p
+  WHERE p.user_id = ? AND DATE_SUB(p.expiry_date, INTERVAL 7 DAY) <= CURRENT_DATE
 ) n
 ORDER BY at DESC, kind
 LIMIT 30`;

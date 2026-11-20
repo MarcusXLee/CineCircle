@@ -10,6 +10,7 @@ import {
   Sparkles,
   X,
   RefreshCw,
+  Info,
 } from "@lucide/vue";
 import {
   api,
@@ -20,6 +21,7 @@ import {
   timeLabel,
   money,
   imageFallback,
+  openPremium,
 } from "../api";
 const route = useRoute(),
   data = ref(null),
@@ -112,7 +114,13 @@ watch(
   },
   { immediate: true },
 );
-watch([selected, () => state.user?.userId], updateQuote, { deep: true });
+watch(
+  [selected, () => state.user?.userId, () => state.user?.premium],
+  updateQuote,
+  {
+    deep: true,
+  },
+);
 async function updateQuote() {
   const token = ++quoteRequest;
   priced.value = null;
@@ -388,6 +396,20 @@ async function book() {
             <div v-if="priced.savings" class="price-line saving">
               <span>{{ priced.items[0]?.offer || "Your offers" }}</span
               ><span>−{{ money(priced.savings) }}</span>
+            </div>
+            <div
+              v-if="
+                priced.memberTotal != null && priced.memberTotal < priced.total
+              "
+              class="member-price-note premium-upsell"
+            >
+              <Sparkles :size="17" /><span
+                >Premium members pay
+                <strong>{{ money(priced.memberTotal) }}</strong> for
+                {{ chosen.length === 1 ? "this seat" : "these seats" }}.</span
+              ><button type="button" class="text-button" @click="openPremium()">
+                Go premium
+              </button>
             </div></template
           >
           <div class="booking-total">
@@ -396,6 +418,11 @@ async function book() {
             }}</span
             ><strong data-testid="booking-total">{{ money(total) }}</strong>
           </div>
+          <p v-if="chosen.length" class="no-refund">
+            <Info :size="15" aria-hidden="true" /><span
+              >Tickets can’t be refunded or exchanged once booked.</span
+            >
+          </p>
           <button
             class="button ticket-button full"
             :disabled="!canBook"
@@ -418,7 +445,7 @@ async function book() {
           ><span
             >{{ chosen.length }} {{ chosen.length === 1 ? "seat" : "seats" }}:
             {{ chosen.map((s) => s.number).join(", ") }}</span
-          >
+          ><span class="bar-no-refund">Non-refundable once booked</span>
         </div>
         <button
           class="button ticket-button"

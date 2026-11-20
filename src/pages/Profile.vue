@@ -9,13 +9,16 @@ import ReviewCard from "../components/ReviewCard.vue";
 import ReviewEditor from "../components/ReviewEditor.vue";
 import Tabs from "../components/Tabs.vue";
 import MoreButton from "../components/MoreButton.vue";
+import MembersDialog from "../components/MembersDialog.vue";
 const route = useRoute(),
   data = ref(null),
   error = ref(""),
   loading = ref(true),
   tab = ref("reviews"),
   busy = ref(false),
-  editor = ref(null);
+  editor = ref(null),
+  // "followers" or "following" while that list is open.
+  people = ref(null);
 async function load() {
   try {
     data.value = await api("/users/" + route.params.id);
@@ -29,6 +32,7 @@ async function load() {
 watch(
   () => route.params.id,
   () => {
+    people.value = null;
     loading.value = true;
     load();
   },
@@ -76,11 +80,22 @@ async function follow(
           <p class="muted">
             {{ data.profile.reviewCount }}
             {{ data.profile.reviewCount === 1 ? "review" : "reviews" }}
-            <span class="profile-stat"
-              >{{ data.profile.followers }} followers</span
-            ><span class="profile-stat"
-              >Following {{ data.profile.followingCount }}</span
+            <button
+              type="button"
+              class="profile-stat stat-link"
+              @click="people = 'followers'"
             >
+              {{ data.profile.followers }}
+              {{
+                data.profile.followers === 1 ? "follower" : "followers"
+              }}</button
+            ><button
+              type="button"
+              class="profile-stat stat-link"
+              @click="people = 'following'"
+            >
+              Following {{ data.profile.followingCount }}
+            </button>
           </p>
         </div>
         <RouterLink
@@ -154,7 +169,22 @@ async function follow(
           :path="`/lists?userId=${data.profile.userId}`"
           :id-of="(l) => l.listId"
           label="Show more lists" /></Tabs></template
-    ><ReviewEditor
+    ><MembersDialog
+      v-if="people && data"
+      :title="
+        people === 'followers'
+          ? `${displayName(data.profile.username)}’s followers`
+          : `${displayName(data.profile.username)} follows`
+      "
+      :path="`/users?${people === 'followers' ? 'followersOf' : 'followedBy'}=${data.profile.userId}`"
+      :empty="
+        people === 'followers'
+          ? 'No one follows this member yet.'
+          : 'This member doesn’t follow anyone yet.'
+      "
+      @close="people = null"
+      @changed="load"
+    /><ReviewEditor
       v-if="editor"
       :review="editor"
       @close="editor = null"

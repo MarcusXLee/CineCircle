@@ -791,6 +791,447 @@ test("premium seats are the middle seats from the middle rows back", async () =>
   ]);
 });
 
+test("members upgrade to premium in one move, can join as premium, and return to regular when it ends", async () => {
+  const { expireMemberships } = await import("../server/routes/membership.mjs");
+  const kinds = async (userId) => {
+    const [[row]] = await pool.execute(
+      `SELECT u.user_type AS type,(SELECT COUNT(*) FROM regular_user WHERE user_id=u.user_id) AS regular,
+       (SELECT COUNT(*) FROM premium_user WHERE user_id=u.user_id) AS premium FROM users u WHERE u.user_id=?`,
+      [userId],
+    );
+    return [row.type, row.regular, row.premium];
+  };
+  assert.equal((await request(app).post("/api/me/membership")).status, 401);
+  const plan = (await request(app).get("/api/session")).body.premiumPlan;
+  assert.deepEqual(plan, { percentOff: 20, months: 12 });
+
+  const member = request.agent(app);
+  const joined = await member.post("/api/auth/register").send({
+    username: "upgrading_member",
+    email: "upgrading@example.test",
+    password: "Cinema2026!",
+  });
+  assert.equal(joined.status, 201);
+  const { userId } = joined.body.user;
+  assert.equal(joined.body.user.premium, false);
+  assert.deepEqual(await kinds(userId), ["regular", 1, 0]);
+  const seatId = (await member.get("/api/screenings/1")).body.seats.find(
+    (s) => s.status === "available",
+  ).screeningSeatId;
+  const quoteSeat = () =>
+    member
+      .post("/api/bookings/quote")
+      .send({ screeningId: 1, seatIds: [seatId] });
+  const before = (await quoteSeat()).body;
+  assert.ok(before.memberTotal < before.total);
+
+  const upgraded = await member.post("/api/me/membership");
+  assert.equal(upgraded.status, 200);
+  assert.equal(upgraded.body.user.premium, true);
+  assert.equal(Number(upgraded.body.user.discountRate), 0.8);
+  assert.deepEqual(await kinds(userId), ["premium", 0, 1]);
+  const [[term]] = await pool.execute(
+    "SELECT DATE_SUB(DATE_ADD(start_date,INTERVAL 12 MONTH),INTERVAL 1 DAY)=expiry_date AS year FROM premium_user WHERE user_id=?",
+    [userId],
+  );
+  assert.equal(term.year, 1);
+  assert.equal((await member.post("/api/me/membership")).status, 409);
+  const after = (await quoteSeat()).body;
+  assert.equal(after.total, before.memberTotal);
+  assert.equal(after.memberTotal, null);
+
+  // Ended yesterday: priced as regular at once; renewing before the move keeps one premium row.
+  const endYesterday = () =>
+    pool.execute(
+      "UPDATE premium_user SET start_date=DATE_SUB(CURRENT_DATE,INTERVAL 1 YEAR),expiry_date=DATE_SUB(CURRENT_DATE,INTERVAL 1 DAY) WHERE user_id=?",
+      [userId],
+    );
+  await endYesterday();
+  assert.equal((await member.get("/api/session")).body.user.premium, false);
+  assert.equal(
+    (await member.post("/api/me/membership")).body.user.premium,
+    true,
+  );
+  assert.deepEqual(await kinds(userId), ["premium", 0, 1]);
+  await endYesterday();
+  assert.ok((await expireMemberships(pool)) >= 1);
+  assert.deepEqual(await kinds(userId), ["regular", 1, 0]);
+  assert.deepEqual(
+    await kinds(1),
+    ["premium", 0, 1],
+    "Mia's membership is current",
+  );
+  assert.equal(
+    (await member.post("/api/me/membership")).body.user.premium,
+    true,
+  );
+  assert.deepEqual(await kinds(userId), ["premium", 0, 1]);
+
+  // In the last week the bell says the membership ends, and renewing adds a term from its end.
+  const ending = async () =>
+    (await member.get("/api/me/notifications")).body.notifications.filter(
+      (n) => n.kind === "membership",
+    );
+  assert.deepEqual(await ending(), []);
+  await pool.execute(
+    "UPDATE premium_user SET expiry_date=DATE_ADD(CURRENT_DATE,INTERVAL 3 DAY) WHERE user_id=?",
+    [userId],
+  );
+  const [[{ endsOn }]] = await pool.execute(
+    "SELECT DATE_FORMAT(expiry_date,'%Y-%m-%d') AS endsOn FROM premium_user WHERE user_id=?",
+    [userId],
+  );
+  const [notice] = await ending();
+  assert.equal(notice.detail, endsOn);
+  assert.equal(notice.unread, true);
+  const [[startBefore]] = await pool.execute(
+    "SELECT start_date AS start FROM premium_user WHERE user_id=?",
+    [userId],
+  );
+  assert.equal((await member.post("/api/me/membership")).status, 200);
+  const [[extended]] = await pool.execute(
+    "SELECT start_date AS start,DATE_SUB(DATE_ADD(DATE_ADD(?,INTERVAL 1 DAY),INTERVAL 12 MONTH),INTERVAL 1 DAY)=expiry_date AS term FROM premium_user WHERE user_id=?",
+    [endsOn, userId],
+  );
+  assert.deepEqual(extended, { start: startBefore.start, term: 1 });
+  assert.deepEqual(await ending(), []);
+
+  const straight = await request(app).post("/api/auth/register").send({
+    username: "premium_joiner",
+    email: "premium.joiner@example.test",
+    password: "Cinema2026!",
+    premium: true,
+  });
+  assert.equal(straight.status, 201);
+  assert.equal(straight.body.user.premium, true);
+  assert.deepEqual(await kinds(straight.body.user.userId), ["premium", 0, 1]);
+});
+
+test("members can be found by name, and each member's followers and following listed", async () => {
+  const names = async (query) =>
+    (await request(app).get(`/api/users?${query}`)).body.users.map(
+      (u) => u.username,
+    );
+  assert.deepEqual(await names("q=ALE"), ["alex"]);
+  // LIKE wildcards in the search are plain characters.
+  assert.deepEqual(await names("q=%25"), []);
+  assert.ok((await names("q=_")).every((name) => name.includes("_")));
+  const [followers] = await pool.execute(
+    "SELECT u.username FROM follows f JOIN users u ON u.user_id=f.follower_id WHERE f.followed_id=1 ORDER BY f.follow_date DESC,u.user_id",
+  );
+  assert.ok(followers.length > 0);
+  assert.deepEqual(
+    await names("followersOf=1&limit=100"),
+    followers.map((f) => f.username),
+  );
+  const [following] = await pool.execute(
+    "SELECT u.username FROM follows f JOIN users u ON u.user_id=f.followed_id WHERE f.follower_id=1 ORDER BY f.follow_date DESC,u.user_id",
+  );
+  assert.deepEqual(
+    await names("followedBy=1&limit=100"),
+    following.map((f) => f.username),
+  );
+  assert.equal(
+    (await request(app).get("/api/users?followersOf=x")).status,
+    400,
+  );
+});
+
+test("account settings change name, email and password, refusing names and emails in use", async () => {
+  const member = request.agent(app),
+    elsewhere = request.agent(app);
+  const login = (agent, username, password) =>
+    agent.post("/api/auth/login").send({ username, password });
+  const joined = await member.post("/api/auth/register").send({
+    username: "settings_member",
+    email: "settings@example.test",
+    password: "Cinema2026!",
+  });
+  assert.equal(joined.status, 201);
+  assert.equal(
+    (await login(elsewhere, "settings_member", "Cinema2026!")).status,
+    200,
+  );
+
+  // Names and emails already in use are refused, whatever their case.
+  const name = await member.put("/api/me/username").send({ username: "ALEX" });
+  assert.equal(name.status, 409);
+  assert.match(name.body.error, /already taken/);
+  assert.equal(
+    (await member.put("/api/me/username").send({ username: "no spaces" }))
+      .status,
+    400,
+  );
+  const mail = await member
+    .put("/api/me/email")
+    .send({ email: "MIA@cinecircle.local" });
+  assert.equal(mail.status, 409);
+  assert.match(mail.body.error, /already in use/);
+  assert.equal(
+    (await member.put("/api/me/email").send({ email: "not-an-email" })).status,
+    400,
+  );
+  const renamed = await member
+    .put("/api/me/username")
+    .send({ username: "settings_renamed" });
+  assert.equal(renamed.body.user.username, "settings_renamed");
+  const moved = await member
+    .put("/api/me/email")
+    .send({ email: "Moved@Example.test" });
+  assert.equal(moved.body.user.email, "moved@example.test");
+  const [emails] = await pool.execute(
+    "SELECT email FROM user_email WHERE user_id=?",
+    [joined.body.user.userId],
+  );
+  assert.deepEqual(emails, [{ email: "moved@example.test" }]);
+  assert.equal(
+    (await member.put("/api/me/email").send({ email: "moved@example.test" }))
+      .status,
+    200,
+  );
+
+  // The password needs the current one and the new one twice.
+  const change = (body) => member.put("/api/me/password").send(body);
+  const wrong = await change({
+    currentPassword: "nope",
+    newPassword: "Popcorn2026!",
+    confirmPassword: "Popcorn2026!",
+  });
+  assert.equal(wrong.status, 400);
+  assert.match(wrong.body.error, /current password/);
+  assert.match(
+    (
+      await change({
+        currentPassword: "Cinema2026!",
+        newPassword: "Popcorn2026!",
+        confirmPassword: "Popcorn2026?",
+      })
+    ).body.error,
+    /don’t match/,
+  );
+  assert.equal(
+    (
+      await change({
+        currentPassword: "Cinema2026!",
+        newPassword: "short",
+        confirmPassword: "short",
+      })
+    ).status,
+    400,
+  );
+  assert.match(
+    (
+      await change({
+        currentPassword: "Cinema2026!",
+        newPassword: "Cinema2026!",
+        confirmPassword: "Cinema2026!",
+      })
+    ).body.error,
+    /different/,
+  );
+  assert.equal(
+    (
+      await change({
+        currentPassword: "Cinema2026!",
+        newPassword: "Popcorn2026!",
+        confirmPassword: "Popcorn2026!",
+      })
+    ).status,
+    200,
+  );
+  // This browser stays signed in; the other one is signed out.
+  assert.equal(
+    (await member.get("/api/session")).body.user.username,
+    "settings_renamed",
+  );
+  assert.equal((await elsewhere.get("/api/session")).body.user, null);
+  assert.equal(
+    (await login(request(app), "settings_renamed", "Cinema2026!")).status,
+    401,
+  );
+  assert.equal(
+    (await login(request(app), "moved@example.test", "Popcorn2026!")).status,
+    200,
+  );
+
+  // The shared demo account stays as it is, and the sign-in dialog knows when its membership ends.
+  for (const [path, body] of [
+    ["/api/me/username", { username: "mia_renamed" }],
+    ["/api/me/email", { email: "mia.new@example.test" }],
+  ])
+    assert.equal((await mia.put(path).send(body)).status, 403);
+  assert.equal(
+    (await mia.delete("/api/me").send({ password: "Cinema2026!" })).status,
+    403,
+  );
+  const [[{ until }]] = await pool.execute(
+    "SELECT expiry_date AS until FROM premium_user WHERE user_id=1",
+  );
+  assert.deepEqual((await request(app).get("/api/session")).body.demo, {
+    username: "mia",
+    premiumUntil: until,
+  });
+});
+
+test("deleting an account needs the password, removes what it owns and keeps its tickets under an anonymous record", async () => {
+  const member = request.agent(app),
+    elsewhere = request.agent(app);
+  const joined = await member.post("/api/auth/register").send({
+    username: "leaving_member",
+    email: "leaving@example.test",
+    password: "Cinema2026!",
+    premium: true,
+  });
+  const me = joined.body.user.userId;
+  await elsewhere
+    .post("/api/auth/login")
+    .send({ username: "leaving_member", password: "Cinema2026!" });
+  // A review with a conversation, a comment (with a reply) under someone else's review, likes,
+  // a bookmarked list, a bookmark, follows both ways, watch records and an upcoming ticket.
+  const { review } = (
+    await member
+      .put("/api/movies/3/my-review")
+      .send({ rating: 8, content: "Gone soon." })
+  ).body;
+  const theirs = (
+    await alex
+      .post(`/api/reviews/${review.reviewId}/comments`)
+      .send({ text: "Under it." })
+  ).body.comment;
+  await member.post(`/api/reviews/${review.reviewId}/comments`).send({
+    text: "Thanks.",
+    parentId: theirs.commentId,
+  });
+  await alex.put(`/api/reviews/${review.reviewId}/like`);
+  const [[other]] = await pool.execute(
+    "SELECT review_id AS reviewId FROM review WHERE user_id=2 LIMIT 1",
+  );
+  const mine = (
+    await member
+      .post(`/api/reviews/${other.reviewId}/comments`)
+      .send({ text: "Mine." })
+  ).body.comment;
+  const reply = (
+    await alex.post(`/api/reviews/${other.reviewId}/comments`).send({
+      text: "Reply to the leaver.",
+      parentId: mine.commentId,
+    })
+  ).body.comment;
+  await member.put(`/api/comments/${reply.commentId}/like`);
+  await alex.put(`/api/comments/${mine.commentId}/like`);
+  await member.put(`/api/reviews/${other.reviewId}/like`);
+  const { list } = (
+    await member
+      .post("/api/lists")
+      .send({ name: "Leaving list", visibility: "public", movieId: 1 })
+  ).body;
+  await alex.put(`/api/lists/${me}/${list.listId}/bookmark`);
+  const [[aList]] = await pool.execute(
+    "SELECT user_id AS userId,list_id AS listId FROM film_list WHERE visibility='public' AND user_id<>? LIMIT 1",
+    [me],
+  );
+  await member.put(`/api/lists/${aList.userId}/${aList.listId}/bookmark`);
+  await member.put("/api/users/2/follow");
+  await alex.put(`/api/users/${me}/follow`);
+  await member.put("/api/me/watchlist/4");
+  await member.put("/api/me/watched/5");
+  const [[seat]] = await pool.execute(
+    "SELECT ss.screening_id AS screeningId,ss.screening_seat_id AS seatId FROM screening_seat ss JOIN screening s USING(screening_id) WHERE ss.status='available' AND s.screening_id<>1 AND s.start_time>DATE_ADD(NOW(),INTERVAL 2 HOUR) ORDER BY s.start_time,ss.screening_seat_id LIMIT 1",
+  );
+  assert.equal(
+    (
+      await member
+        .post("/api/bookings")
+        .send({ screeningId: seat.screeningId, seatIds: [seat.seatId] })
+    ).status,
+    201,
+  );
+  const owned = async () => {
+    const [[row]] = await pool.execute(
+      `SELECT (SELECT COUNT(*) FROM users WHERE user_id=? AND deleted_date IS NULL) +
+        (SELECT COUNT(*) FROM user_email WHERE user_id=?) + (SELECT COUNT(*) FROM premium_user WHERE user_id=?) +
+        (SELECT COUNT(*) FROM review WHERE user_id=?) + (SELECT COUNT(*) FROM review_comment WHERE user_id=?) +
+        (SELECT COUNT(*) FROM comment_like WHERE user_id=?) + (SELECT COUNT(*) FROM review_like WHERE user_id=?) +
+        (SELECT COUNT(*) FROM film_list WHERE user_id=?) + (SELECT COUNT(*) FROM list_bookmark WHERE user_id=? OR owner_id=?) +
+        (SELECT COUNT(*) FROM follows WHERE follower_id=? OR followed_id=?) + (SELECT COUNT(*) FROM wants_to_watch WHERE user_id=?) +
+        (SELECT COUNT(*) FROM watches WHERE user_id=?) AS n`,
+      Array(14).fill(me),
+    );
+    return row.n;
+  };
+  const before = await owned();
+  // Account, email, membership, review, 2 comments, 2 likes, list, 2 bookmarks, 2 follows,
+  // watchlist and watched.
+  assert.equal(before, 15);
+
+  const wrong = await member.delete("/api/me").send({ password: "nope" });
+  assert.equal(wrong.status, 400);
+  assert.equal(await owned(), before, "A wrong password changes nothing.");
+  assert.equal(
+    (await member.delete("/api/me").send({ password: "Cinema2026!" })).status,
+    200,
+  );
+  assert.equal(await owned(), 0);
+  // Replies by others under the member's comments, and comments under their review, go too.
+  const [[left]] = await pool.execute(
+    "SELECT (SELECT COUNT(*) FROM review_comment WHERE comment_id IN (?,?,?)) AS comments,(SELECT status FROM screening_seat WHERE screening_id=? AND screening_seat_id=?) AS seat",
+    [
+      theirs.commentId,
+      mine.commentId,
+      reply.commentId,
+      seat.screeningId,
+      seat.seatId,
+    ],
+  );
+  // The ticket stays, its seat still sold, under a record with nothing personal left.
+  assert.deepEqual(left, { comments: 0, seat: "booked" });
+  const [[record]] = await pool.execute(
+    `SELECT u.username,u.password_hash AS hash,u.user_type AS type,u.deleted_date IS NOT NULL AS deleted,
+       (SELECT COUNT(*) FROM regular_user WHERE user_id=u.user_id) AS regular,
+       (SELECT COUNT(*) FROM ticket WHERE user_id=u.user_id) AS tickets
+     FROM users u WHERE u.user_id=?`,
+    [me],
+  );
+  assert.deepEqual(record, {
+    username: `deleted-member-${me}`,
+    hash: "deleted",
+    type: "regular",
+    deleted: 1,
+    regular: 1,
+    tickets: 1,
+  });
+  // The anonymous record is hidden everywhere members appear.
+  assert.equal((await request(app).get(`/api/users/${me}`)).status, 404);
+  assert.equal((await alex.put(`/api/users/${me}/follow`)).status, 404);
+  const everyone = (await request(app).get("/api/users?limit=100")).body.users;
+  assert.ok(everyone.every((u) => u.userId !== me));
+  assert.deepEqual(
+    (await request(app).get("/api/users?q=deleted")).body.users,
+    [],
+  );
+  assert.equal((await member.get("/api/session")).body.user, null);
+  assert.equal((await elsewhere.get("/api/session")).body.user, null);
+  assert.equal(
+    (
+      await request(app)
+        .post("/api/auth/login")
+        .send({ username: "leaving_member", password: "Cinema2026!" })
+    ).status,
+    401,
+  );
+  // The name and email are free again.
+  assert.equal(
+    (
+      await request(app).post("/api/auth/register").send({
+        username: "leaving_member",
+        email: "leaving@example.test",
+        password: "Cinema2026!",
+      })
+    ).status,
+    201,
+  );
+});
+
 test("premium quote is server-calculated; simultaneous buyers cannot obtain the same seat", async () => {
   const screen = (await mia.get("/api/screenings/1")).body;
   assert.equal(screen.screening.movieId, 1);

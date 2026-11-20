@@ -444,11 +444,32 @@ export function social(pool) {
         });
         res.json({ ok: true });
       });
+  // Members, most reviews first. `q` finds members by username; `followersOf` and
+  // `followedBy` list who follows a member and whom they follow, most recent first.
   router.get("/users", async (req, res) => {
-    const range = page(req.query, 20);
+    const range = page(req.query, 20),
+      q = text(req.query.q, 40),
+      params = [req.session.userId || 0],
+      where = ["u.deleted_date IS NULL"];
+    let join = "",
+      order = "reviews DESC,u.user_id";
+    const relation = [
+      ["followersOf", "follower_id", "followed_id"],
+      ["followedBy", "followed_id", "follower_id"],
+    ].find(([key]) => req.query[key] !== undefined);
+    if (relation) {
+      const [key, mine, theirs] = relation;
+      join = `JOIN follows rel ON rel.${mine}=u.user_id AND rel.${theirs}=?`;
+      params.push(id(req.query[key]));
+      order = "rel.follow_date DESC,u.user_id";
+    }
+    if (q) {
+      where.push("u.username LIKE ?");
+      params.push(`%${q.replace(/[\\%_]/g, "\\$&")}%`);
+    }
     const [users] = await pool.execute(
-      `SELECT u.user_id AS userId,u.username,(SELECT COUNT(*) FROM review r WHERE r.user_id=u.user_id) AS reviews,(SELECT COUNT(*) FROM follows f WHERE f.followed_id=u.user_id) AS followers,EXISTS(SELECT 1 FROM follows f WHERE f.followed_id=u.user_id AND f.follower_id=?) AS following FROM users u ORDER BY reviews DESC,u.user_id LIMIT ${range.limit + 1} OFFSET ${range.offset}`,
-      [req.session.userId || 0],
+      `SELECT u.user_id AS userId,u.username,(SELECT COUNT(*) FROM review r WHERE r.user_id=u.user_id) AS reviews,(SELECT COUNT(*) FROM follows f WHERE f.followed_id=u.user_id) AS followers,EXISTS(SELECT 1 FROM follows f WHERE f.followed_id=u.user_id AND f.follower_id=?) AS following FROM users u ${join} WHERE ${where.join(" AND ")} ORDER BY ${order} LIMIT ${range.limit + 1} OFFSET ${range.offset}`,
+      params,
     );
     const more = trimPage(users, range);
     res.json({
@@ -462,7 +483,7 @@ export function social(pool) {
       if (target === req.session.userId)
         throw new HttpError(400, "Choose another member to follow.");
       const [[user]] = await pool.execute(
-        "SELECT user_id FROM users WHERE user_id=?",
+        "SELECT user_id FROM users WHERE user_id=? AND deleted_date IS NULL",
         [target],
       );
       if (!user) throw new HttpError(404, "Member not found.");

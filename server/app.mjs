@@ -8,6 +8,7 @@ import { social, reviews, reviewPage, library } from "./routes/social.mjs";
 import { lists, listCards } from "./routes/lists.mjs";
 import { booking, screeningRows } from "./routes/booking.mjs";
 import { notifications } from "./routes/notifications.mjs";
+import { membership } from "./routes/membership.mjs";
 import { movieSelect, presentation } from "./catalog.mjs";
 import { HttpError, id, text, userInfo, page, trimPage } from "./auth.mjs";
 
@@ -47,6 +48,7 @@ export function createApp({ pool, sessionSecret }) {
     res.json({ ok: true });
   });
   app.use("/api", accounts(pool));
+  app.use("/api", membership(pool));
   app.get("/api/genres", async (req, res) => {
     const [genres] = await pool.query(
       "SELECT genre_id AS genreId,genre_name AS name FROM genre ORDER BY genre_name",

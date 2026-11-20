@@ -41,6 +41,8 @@ const revisedConstraints = [
     name: "chk_no_self_follow",
     check: "follower_id <> followed_id",
   },
+  // A ticket uses at most one discount (the best eligible one; offers do not stack).
+  { table: "ticket_discount", name: "uq_td_ticket", columns: "ticket_id" },
 ];
 
 async function addMissingConstraints(connection, database) {
@@ -107,6 +109,62 @@ const addedColumns = [
         "column notifications_read_at",
         "ADD COLUMN notifications_read_at DATETIME NULL AFTER register_date",
       ],
+      [
+        "column user_type",
+        "ADD COLUMN user_type VARCHAR(10) NOT NULL DEFAULT 'regular' AFTER notifications_read_at",
+      ],
+      [
+        "key uq_users_type",
+        "ADD UNIQUE KEY uq_users_type (user_id, user_type)",
+      ],
+      [
+        "constraint chk_users_type",
+        "ADD CONSTRAINT chk_users_type CHECK (user_type IN ('regular', 'premium'))",
+      ],
+      [
+        "column deleted_date",
+        "ADD COLUMN deleted_date DATETIME NULL AFTER user_type",
+      ],
+    ],
+  },
+  // Regular and premium members are disjoint: each subtype row carries its type and refers
+  // to (user_id, user_type) in users, so a member can only be in the table matching their type.
+  {
+    table: "regular_user",
+    check: membershipConflicts,
+    prepare: alignMembership,
+    steps: [
+      [
+        "column user_type",
+        "ADD COLUMN user_type VARCHAR(10) NOT NULL DEFAULT 'regular'",
+      ],
+      [
+        "constraint chk_regular_user_type",
+        "ADD CONSTRAINT chk_regular_user_type CHECK (user_type = 'regular')",
+      ],
+      [
+        "constraint fk_regular_user_type",
+        "ADD CONSTRAINT fk_regular_user_type FOREIGN KEY (user_id, user_type) REFERENCES users (user_id, user_type)",
+      ],
+    ],
+  },
+  {
+    table: "premium_user",
+    check: membershipConflicts,
+    prepare: alignMembership,
+    steps: [
+      [
+        "column user_type",
+        "ADD COLUMN user_type VARCHAR(10) NOT NULL DEFAULT 'premium'",
+      ],
+      [
+        "constraint chk_premium_user_type",
+        "ADD CONSTRAINT chk_premium_user_type CHECK (user_type = 'premium')",
+      ],
+      [
+        "constraint fk_premium_user_type",
+        "ADD CONSTRAINT fk_premium_user_type FOREIGN KEY (user_id, user_type) REFERENCES users (user_id, user_type)",
+      ],
     ],
   },
   {
@@ -128,8 +186,30 @@ const addedColumns = [
   },
 ];
 
-// Returns how many tables were changed.
-async function addMissingColumns(connection, database) {
+// A member in both subtype tables cannot be given one type; the owner decides which row to keep.
+async function membershipConflicts(connection) {
+  const [both] = await connection.query(
+    "SELECT user_id AS userId FROM regular_user JOIN premium_user USING(user_id) ORDER BY user_id LIMIT 5",
+  );
+  if (both.length)
+    throw new Error(
+      `Members ${both.map((m) => m.userId).join(", ")} are both regular and premium. Remove one of each member's rows (regular_user or premium_user) and rerun npm run setup. No rows or constraints were changed.`,
+    );
+}
+// Gives users.user_type the type each member already has, and makes a member who has neither
+// subtype row a regular member. Safe to repeat.
+async function alignMembership(connection) {
+  await connection.query(
+    "UPDATE users SET user_type='premium' WHERE user_type<>'premium' AND user_id IN (SELECT user_id FROM premium_user)",
+  );
+  await connection.query(
+    `INSERT INTO regular_user(user_id) SELECT user_id FROM users u WHERE NOT EXISTS (SELECT 1 FROM regular_user r WHERE r.user_id=u.user_id)
+     AND NOT EXISTS (SELECT 1 FROM premium_user p WHERE p.user_id=u.user_id)`,
+  );
+}
+
+// The added columns, keys and constraints a database still lacks, by table.
+async function pendingColumns(connection, database) {
   const [present] = await connection.execute(
     `SELECT table_name AS tableName,CONCAT('column ',column_name) AS item FROM information_schema.columns WHERE table_schema=?
     UNION SELECT table_name,CONCAT('key ',index_name) FROM information_schema.statistics WHERE table_schema=?
@@ -137,11 +217,29 @@ async function addMissingColumns(connection, database) {
     [database, database, database],
   );
   const have = new Set(present.map((p) => `${p.tableName}.${p.item}`));
+  return addedColumns
+    .map((entry) => ({
+      ...entry,
+      missing: entry.steps.filter(
+        ([item]) => !have.has(`${entry.table}.${item}`),
+      ),
+    }))
+    .filter((entry) => entry.missing.length);
+}
+// Runs before any other upgrade change, so a conflict leaves the database as it was.
+async function checkPendingColumns(connection, database, pending) {
+  if (!pending.length) return;
+  await connection.query(`USE \`${database}\``);
+  for (const check of new Set(pending.map((entry) => entry.check)))
+    await check?.(connection);
+}
+// Returns how many tables were changed. A table's prepare runs just before its own steps.
+async function addMissingColumns(connection, database, pending) {
+  if (!pending.length) return 0;
+  await connection.query(`USE \`${database}\``);
   let changed = 0;
-  for (const { table, steps } of addedColumns) {
-    const missing = steps.filter(([item]) => !have.has(`${table}.${item}`));
-    if (!missing.length) continue;
-    await connection.query(`USE \`${database}\``);
+  for (const { table, prepare, missing } of pending) {
+    await prepare?.(connection);
     for (const [, change] of missing)
       await connection.query(`ALTER TABLE \`${table}\` ${change}`);
     changed++;
@@ -207,6 +305,11 @@ export async function initializeDatabase(name = dbOptions().database) {
         throw new Error(
           `Database ${name} does not contain the expected CineCircle tables. No data was changed. Run npm run setup and choose another database name.`,
         );
+      await checkPendingColumns(
+        connection,
+        name,
+        await pendingColumns(connection, name),
+      );
       const changes = await addMissingConstraints(connection, name);
       const tablesAdded = await addMissingTables(
         connection,
@@ -215,7 +318,14 @@ export async function initializeDatabase(name = dbOptions().database) {
         missing,
       );
       return (
-        changes + tablesAdded + (await addMissingColumns(connection, name))
+        changes +
+        tablesAdded +
+        // Tables just created already have every column, so look again.
+        (await addMissingColumns(
+          connection,
+          name,
+          await pendingColumns(connection, name),
+        ))
       );
     }
     const sql = source

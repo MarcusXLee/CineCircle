@@ -8,8 +8,10 @@ import {
   displayName,
   resolveConfirmation,
   openAuth,
+  closePremium,
 } from "./api";
 import AuthModal from "./components/AuthModal.vue";
+import PremiumModal from "./components/PremiumModal.vue";
 import Modal from "./components/Modal.vue";
 import BrandMark from "./components/BrandMark.vue";
 import NotificationBell from "./components/NotificationBell.vue";
@@ -19,6 +21,8 @@ const search = ref(""),
   route = useRoute(),
   router = useRouter();
 onMounted(() => refreshSession().catch(() => {}));
+// The premium offer belongs to whoever opened it; signing out or in as someone else closes it.
+watch(() => state.user?.userId, closePremium);
 watch(
   () => route.fullPath,
   () => (mobileNav.value = false),
@@ -234,7 +238,9 @@ function closeMenu() {
       </div>
     </div>
   </footer>
-  <AuthModal v-if="state.authOpen" /><Modal
+  <AuthModal v-if="state.authOpen" /><PremiumModal
+    v-if="state.premiumOpen && state.user"
+  /><Modal
     v-if="state.confirmation"
     :title="state.confirmation.title"
     @close="resolveConfirmation(false)"

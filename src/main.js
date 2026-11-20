@@ -11,6 +11,7 @@ import List from "./pages/List.vue";
 import Community from "./pages/Community.vue";
 import Profile from "./pages/Profile.vue";
 import Tickets from "./pages/Tickets.vue";
+import Settings from "./pages/Settings.vue";
 import NotFound from "./pages/NotFound.vue";
 import "@fontsource-variable/bricolage-grotesque";
 import "@fontsource-variable/dm-sans";
@@ -34,6 +35,7 @@ const router = createRouter({
     { path: "/community", component: Community },
     { path: "/members/:id", component: Profile },
     { path: "/tickets", component: Tickets },
+    { path: "/settings", component: Settings },
     { path: "/:pathMatch(.*)*", component: NotFound },
   ],
   scrollBehavior(to, from, saved) {

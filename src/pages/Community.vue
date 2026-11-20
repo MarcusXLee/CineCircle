@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, watch } from "vue";
-import { Plus, Check } from "@lucide/vue";
+import { Plus, Check, Search } from "@lucide/vue";
 import { api, state, signedIn, notify, displayName } from "../api";
 import ReviewCard from "../components/ReviewCard.vue";
 import ReviewEditor from "../components/ReviewEditor.vue";
@@ -11,7 +11,14 @@ const data = ref(null),
   error = ref(""),
   editor = ref(null),
   busy = ref(null),
-  feed = ref("everyone");
+  feed = ref("everyone"),
+  memberQuery = ref("");
+// Members, or those whose username contains the search.
+const usersPath = computed(() =>
+  memberQuery.value.trim()
+    ? `/users?q=${encodeURIComponent(memberQuery.value.trim())}`
+    : "/users",
+);
 // The review feed: everyone, or only the members the visitor follows.
 const feedPath = computed(() =>
   feed.value === "following" ? "/reviews?following=1" : "/reviews",
@@ -26,7 +33,7 @@ async function load() {
   try {
     const [r, u, l] = await Promise.all([
       api(feedPath.value),
-      api("/users"),
+      api(usersPath.value),
       api("/lists?public=1"),
     ]);
     data.value = {
@@ -58,6 +65,24 @@ async function follow(user, method = user.following ? "DELETE" : "PUT") {
 }
 onMounted(load);
 watch(() => state.user?.userId, load);
+// Searching members reloads only the members, shortly after typing stops; only the latest
+// search is shown.
+let searchTimer,
+  searches = 0;
+watch(memberQuery, () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(async () => {
+    const search = ++searches;
+    try {
+      const u = await api(usersPath.value);
+      if (search !== searches || !data.value) return;
+      data.value.users = u.users;
+      data.value.more = { ...data.value.more, users: u.more };
+    } catch (e) {
+      notify(e.message, "error");
+    }
+  }, 250);
+});
 </script>
 <template>
   <div class="page-shell community-page">
@@ -122,6 +147,19 @@ watch(() => state.user?.userId, load);
         </div>
         <aside class="members-panel">
           <h2>Members</h2>
+          <label class="member-search"
+            ><Search :size="15" aria-hidden="true" /><span class="sr-only"
+              >Find a member by name</span
+            ><input
+              v-model="memberQuery"
+              type="search"
+              placeholder="Find a member"
+              maxlength="40"
+              autocomplete="off"
+          /></label>
+          <p v-if="!data.users.length" class="small muted member-none">
+            No member’s name contains “{{ memberQuery.trim() }}”.
+          </p>
           <div v-for="u in data.users" :key="u.userId" class="member-row">
             <RouterLink :to="`/members/${u.userId}`" class="member-profile-link"
               ><span class="avatar" :data-tone="u.userId % 4">{{
@@ -148,7 +186,7 @@ watch(() => state.user?.userId, load);
           <MoreButton
             :data="data"
             field="users"
-            path="/users"
+            :path="usersPath"
             :id-of="(u) => u.userId"
             label="Show more members"
           />

@@ -8,8 +8,12 @@ CREATE TABLE `users` (
   password_hash VARCHAR(255) NOT NULL,
   register_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   notifications_read_at DATETIME NULL,
+  user_type VARCHAR(10) NOT NULL DEFAULT 'regular',
+  deleted_date DATETIME NULL,
   PRIMARY KEY (user_id),
-  CONSTRAINT uq_users_username UNIQUE (username)
+  CONSTRAINT uq_users_username UNIQUE (username),
+  CONSTRAINT uq_users_type UNIQUE (user_id, user_type),
+  CONSTRAINT chk_users_type CHECK (user_type IN ('regular', 'premium'))
 ) ENGINE=InnoDB;
 
 CREATE TABLE `user_email` (
@@ -22,8 +26,11 @@ CREATE TABLE `user_email` (
 
 CREATE TABLE `regular_user` (
   user_id BIGINT UNSIGNED NOT NULL,
+  user_type VARCHAR(10) NOT NULL DEFAULT 'regular',
   PRIMARY KEY (user_id),
-  CONSTRAINT `fk_regular_user_user` FOREIGN KEY (user_id) REFERENCES `users` (user_id)
+  CONSTRAINT `fk_regular_user_user` FOREIGN KEY (user_id) REFERENCES `users` (user_id),
+  CONSTRAINT `fk_regular_user_type` FOREIGN KEY (user_id, user_type) REFERENCES `users` (user_id, user_type),
+  CONSTRAINT `chk_regular_user_type` CHECK (user_type = 'regular')
 ) ENGINE=InnoDB;
 
 CREATE TABLE `premium_user` (
@@ -31,8 +38,11 @@ CREATE TABLE `premium_user` (
   start_date DATE NOT NULL,
   expiry_date DATE NOT NULL,
   discount_rate DECIMAL(5,4) NOT NULL,
+  user_type VARCHAR(10) NOT NULL DEFAULT 'premium',
   PRIMARY KEY (user_id),
   CONSTRAINT `fk_premium_user_user` FOREIGN KEY (user_id) REFERENCES `users` (user_id),
+  CONSTRAINT `fk_premium_user_type` FOREIGN KEY (user_id, user_type) REFERENCES `users` (user_id, user_type),
+  CONSTRAINT `chk_premium_user_type` CHECK (user_type = 'premium'),
   CONSTRAINT `chk_premium_dates` CHECK (expiry_date >= start_date),
   CONSTRAINT `chk_premium_rate` CHECK (discount_rate BETWEEN 0 AND 1)
 ) ENGINE=InnoDB;
@@ -260,6 +270,7 @@ CREATE TABLE `ticket_discount` (
   ticket_id BIGINT UNSIGNED NOT NULL,
   discount_id BIGINT UNSIGNED NOT NULL,
   PRIMARY KEY (ticket_id, discount_id),
+  CONSTRAINT uq_td_ticket UNIQUE (ticket_id),
   CONSTRAINT `fk_td_ticket` FOREIGN KEY (ticket_id) REFERENCES `ticket` (ticket_id),
   CONSTRAINT `fk_td_discount` FOREIGN KEY (discount_id) REFERENCES `discount` (discount_id)
 ) ENGINE=InnoDB;

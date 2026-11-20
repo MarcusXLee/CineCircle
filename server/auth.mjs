@@ -67,7 +67,7 @@ export async function userInfo(pool, userId) {
     `SELECT u.user_id AS userId,u.username,u.register_date AS joined,
     (SELECT email FROM user_email WHERE user_id=u.user_id ORDER BY email LIMIT 1) AS email,
     p.expiry_date AS expiryDate, COALESCE(p.start_date<=CURRENT_DATE AND p.expiry_date>=CURRENT_DATE,0) AS premium,
-    p.discount_rate AS discountRate FROM users u LEFT JOIN premium_user p USING(user_id) WHERE u.user_id=?`,
+    p.discount_rate AS discountRate FROM users u LEFT JOIN premium_user p USING(user_id) WHERE u.user_id=? AND u.deleted_date IS NULL`,
     [userId],
   );
   return user ? { ...user, premium: Boolean(user.premium) } : null;
