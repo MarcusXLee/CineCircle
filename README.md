@@ -260,6 +260,8 @@ Keep the window open while you use CineCircle; close it or press Ctrl+C to stop.
 | `npm run setup` | Asks the MySQL connection questions again (for example after changing the password), then sets up             |
 | `npm run dev`   | Development mode with live reload at http://127.0.0.1:5173 (API on port 3001)                                 |
 
+`npm start` and `npm run setup` install dependencies themselves. `npm run dev` (and `npm test` below) do not: they need Node.js 22.18 or newer on this computer and a one-time `npm ci` in this folder first, including when MySQL runs in Docker. In development mode the site at port 5173 forwards `/api` requests to the backend on `PORT` (default 3001), so changing `PORT` in `.env` moves both. `API_PORT` overrides only the forwarding target and is needed only when the backend runs somewhere other than `PORT`.
+
 ## 6. Database setup, configuration and initial data
 
 ### What setup does
@@ -269,7 +271,7 @@ Setup runs automatically on every start (`node scripts/db.mjs init`, called by D
 1. **Connect.** It waits for MySQL (up to 30 seconds under Docker) and checks the version is MySQL 8.0.16 or newer.
 2. **Create the schema if needed.** If the database (default `cinecircle`) has no tables, it runs `CineCircle_MySQL.sql`, which creates the database and all 25 tables with their keys and constraints.
 3. **Load the initial data** into an empty database (listed below).
-4. **Keep existing data.** An existing CineCircle database is reused and never reset. If it was created by an earlier version of the schema, setup first checks the existing rows against the new rules. If any row would break one, it names the rule and stops without changing anything. Otherwise it adds the missing tables, columns and constraints in place. If a database with that name holds something other than CineCircle, setup stops without touching it.
+4. **Keep existing data.** An existing CineCircle database is reused and never reset. If it was created by an earlier version of the schema, setup first checks the existing rows against the new rules. If any row would break one, it names the rule and stops without changing anything. Otherwise it adds the missing tables, columns and constraints in place, and fills a newly added table with its demo rows once. Demo rows are never restored later: a table that is empty because members deleted its rows stays empty. If a database with that name holds something other than CineCircle, setup stops without touching it.
 5. **Keep the programme current.** Screenings are dated relative to today: any of the next ten days without screenings gets the standard schedule (13:00, 17:00 and 21:00 in each hall), and every film keeps at least two upcoming screenings. This repeats hourly while the server runs, and memberships that have ended move back to regular.
 
 ### Configuration
@@ -280,7 +282,7 @@ Setup runs automatically on every start (`node scripts/db.mjs init`, called by D
 | MySQL server                  | the `db` container, MySQL 8.4, time zone `+08:00`, data in the volume `cinecircle_db-data` | `DB_HOST` (127.0.0.1), `DB_PORT` (3306) or `DB_SOCKET`         |
 | Account                       | `cinecircle` / `cinecircle` (root: `cinecircle-root`)                                      | `DB_USER` (root), `DB_PASSWORD`                                |
 | Database name                 | `cinecircle`                                                                               | `DB_NAME` (cinecircle)                                         |
-| Website                       | port 3001 (`APP_PORT` to change)                                                           | `PORT` (3001), `HOST`, `SESSION_SECRET`                        |
+| Website                       | port 3001 (`APP_PORT` to change)                                                           | `PORT` (3001), `HOST`, `SESSION_SECRET`; `API_PORT` (dev only) |
 | Connect a client (Workbench…) | `127.0.0.1:3307` (`DB_HOST_PORT` to change)                                                | `127.0.0.1:3306`, then open the `cinecircle` schema            |
 
 On first run, setup tries `root` without a password at `127.0.0.1:3306` and asks only if that fails. `.env` contains your MySQL password, so do not share or submit it. The MySQL account needs permission to create databases and tables, and to alter them when upgrading (root has it). To reset without Docker, run `DROP DATABASE cinecircle;` in MySQL, then start again.
@@ -297,10 +299,10 @@ On first run, setup tries `root` without a password at `127.0.0.1:3306` and asks
 | `film_list`, `film_list_movie`, `list_bookmark` |   5, 19, 7 | Public and private lists with ordered films, and bookmarks                                          |
 | `follows`, `wants_to_watch`, `watches`          |   11, 7, 4 | Who follows whom, watchlists and watched films                                                      |
 | `cinema`, `hall`, `seat`                        |   2, 2, 96 | Two Hong Kong cinemas, one hall each, 48 seats per hall (A1–F8; the middle of rows D–F are premium) |
-| `screening`, `screening_seat`                   |   60, 2880 | Ten days of screenings from today, one row per seat per screening                                   |
-| `discount`, `ticket`, `ticket_discount`         |    1, 3, 3 | The Weekday matinee offer and three sample tickets                                                  |
+| `screening`, `screening_seat`                   |   60, 2880 | Ten days of screenings starting tomorrow, one row per seat per screening                            |
+| `discount`, `ticket`, `ticket_discount`         |  1, 3, 0/3 | The Weekday matinee offer and three sample tickets, priced by the checkout rules (see below)        |
 
-Counts are for a fresh database; screenings grow as days pass.
+Counts are for a fresh database; screenings grow as days pass. The sample tickets are seats C3, C4 (standard) and D5 (premium) at tomorrow's 13:00 screening in The Screening Room, booked through the same code as checkout. On a weekday they cost HK$70, HK$70 and HK$95 with the Weekday matinee offer (three `ticket_discount` rows); on a Saturday or Sunday they cost HK$78, HK$78 and HK$103 with no discount (no rows).
 
 **Demo accounts.** Every account uses the password **`Cinema2026!`**. You can also register your own, as regular or premium.
 
@@ -333,10 +335,11 @@ A short route that touches every CRUD operation:
 
 ## 8. Tests
 
-Run with the Docker database (`docker compose up -d --wait db`, then a `.env` with `DB_HOST=127.0.0.1`, `DB_PORT=3307`, `DB_USER=root`, `DB_PASSWORD=cinecircle-root`) or after Option B or C:
+The tests run on this computer, not inside Docker, so they need Node.js 22.18 or newer here, even with the Docker database. Use the Docker database (`docker compose up -d --wait db`, then a `.env` with `DB_HOST=127.0.0.1`, `DB_PORT=3307`, `DB_USER=root`, `DB_PASSWORD=cinecircle-root`) or a local MySQL set up by Option B or C:
 
 ```sh
-npm test                     # 32 API and schema tests against disposable databases
+npm ci                       # once: install dependencies (Options B and C have already done this)
+npm test                     # 34 API, schema and seed tests against disposable databases
 npx playwright install chromium
 npm run test:e2e             # 17 browser tests
 npm run build
@@ -359,7 +362,7 @@ The tests create and drop their own `cinecircle_test_*` databases, so the accoun
 | `scripts/`                               | Setup and start (`launch.mjs`, `prepare.mjs`, `db.mjs`), dev and test servers         |
 | `start-windows.bat`, `start-mac.command` | Double-click launchers for Options B and C                                            |
 | `Dockerfile`, `compose.yaml`             | The Docker image and the app + MySQL stack                                            |
-| `tests/`                                 | API, schema and browser tests                                                         |
+| `tests/`                                 | API, schema, seed and browser tests                                                   |
 | `docs/API.md`                            | Every API route                                                                       |
 | `database-review.md`                     | Review of the supplied design and the revisions made                                  |
 

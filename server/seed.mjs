@@ -1,6 +1,7 @@
 import { films } from "./catalog.mjs";
 import { hashPassword } from "./auth.mjs";
 import { transaction } from "./db.mjs";
+import { bookSeats } from "./routes/booking.mjs";
 
 const hours = [13, 17, 21];
 // Inserts a screening `day` days from today at `hour` (13 or "09:45"), with a status row
@@ -201,13 +202,14 @@ export async function seedDatabase(pool) {
             hour,
           );
     await c.query("INSERT INTO discount VALUES(1,'Weekday matinee',8)");
-    await c.query(
-      "INSERT INTO ticket(user_id,screening_id,screening_seat_id,price) VALUES(2,1,19,70),(3,1,20,70),(4,1,29,70)",
-    );
-    await c.query(
-      "UPDATE screening_seat SET status='booked' WHERE screening_id=1 AND screening_seat_id IN(19,20,29)",
-    );
-    await c.query("INSERT INTO ticket_discount SELECT ticket_id,1 FROM ticket");
+    // Sample bookings for tomorrow's first screening (standard C3 and C4, premium D5), priced
+    // and discounted by the checkout rules, so they depend on that screening's day and seat type.
+    for (const [userId, seatId] of [
+      [2, 19],
+      [3, 20],
+      [4, 29],
+    ])
+      await bookSeats(c, userId, 1, [seatId]);
     await addClassicCircle(c);
     await addDemoComments(c);
     await addDemoBookmarks(c);
@@ -244,8 +246,10 @@ async function updateSeatPlan(c) {
   return updated;
 }
 
-// A few replies under popular reviews, so conversations do not start empty. Added once:
-// only when no comments exist yet and the reviews and members they refer to are present.
+// A few replies under popular reviews, so conversations do not start empty. Added by the first
+// seed, or by the upgrade that creates the comments table, and only where the reviews and
+// members they refer to are present. An empty table is otherwise left empty: members may
+// have deleted every comment.
 const demoComments = [
   [
     "alex",
@@ -305,7 +309,8 @@ const demoCommentLikes = [
   ["noah", 8],
   ["rosa", 5],
 ];
-// [member, list owner, list id]: a few bookmarks, so the most-saved collections lead.
+// [member, list owner, list id]: a few bookmarks, so the most-saved collections lead. Added
+// at the same moments as the demo comments.
 const demoBookmarks = [
   ["mia", "eleanor", 1],
   ["theo", "eleanor", 1],
@@ -511,13 +516,17 @@ async function addClassicCircle(c) {
 }
 
 // Brings an older demo database up to the current catalogue: films and genres it lacks are
-// added, then the classic members if none of them exist yet. Nothing existing is changed.
-export async function extendCatalog(pool) {
+// added, and the classic members with them. Demo comments and bookmarks are added only when
+// `createdTables` (the tables this setup run just created) includes their table. Content a
+// table once had and lost was deleted on purpose, so it is never restored. Nothing existing
+// is changed.
+export async function extendCatalog(pool, { createdTables = [] } = {}) {
   return transaction(pool, async (c) => {
     const [[{ movies }]] = await c.query(
       "SELECT COUNT(*) AS movies FROM movie",
     );
-    if (!movies) return { films: 0, members: 0, halls: 0, comments: 0 };
+    if (!movies)
+      return { films: 0, members: 0, halls: 0, comments: 0, bookmarks: 0 };
     const [genreRows] = await c.query(
       "SELECT genre_id AS id, genre_name AS name FROM genre FOR UPDATE",
     );
@@ -526,6 +535,7 @@ export async function extendCatalog(pool) {
     const [existing] = await c.query("SELECT movie_id AS id FROM movie");
     const have = new Set(existing.map((m) => m.id));
     let added = 0;
+    const addedIds = new Set();
     for (const f of films) {
       if (have.has(f.id)) continue;
       await c.execute("INSERT INTO movie VALUES(?,?,?,?,?,?)", [
@@ -547,13 +557,22 @@ export async function extendCatalog(pool) {
         ]);
       }
       added++;
+      addedIds.add(f.id);
     }
+    // The classic members review the classic films, so they arrive with those films.
+    const classicFilmsAdded = classicReviews.some(([, movie]) =>
+      addedIds.has(movie),
+    );
     return {
       films: added,
-      members: await addClassicCircle(c),
+      members: classicFilmsAdded ? await addClassicCircle(c) : 0,
       halls: await updateSeatPlan(c),
-      comments: await addDemoComments(c),
-      bookmarks: await addDemoBookmarks(c),
+      comments: createdTables.includes("review_comment")
+        ? await addDemoComments(c)
+        : 0,
+      bookmarks: createdTables.includes("list_bookmark")
+        ? await addDemoBookmarks(c)
+        : 0,
     };
   });
 }

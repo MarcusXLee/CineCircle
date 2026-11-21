@@ -62,9 +62,30 @@ export async function waitForDatabase({ retries = 0 } = {}) {
     }
   }
 }
+// The tables in the configured database, read before and after the schema step so the
+// demo-content step can tell a table setup just created from one that was emptied later.
+async function tableNames() {
+  const c = await mysql.createConnection({
+    ...dbOptions(),
+    database: undefined,
+  });
+  try {
+    const [rows] = await c.execute(
+      "SELECT table_name AS name FROM information_schema.tables WHERE table_schema=? AND table_type='BASE TABLE'",
+      [dbOptions().database],
+    );
+    return rows.map((r) => r.name);
+  } finally {
+    await c.end();
+  }
+}
 export async function setupDatabase(options) {
   await waitForDatabase(options);
+  const before = await tableNames();
   const updated = await initializeDatabase();
+  const createdTables = before.length
+    ? (await tableNames()).filter((t) => !before.includes(t))
+    : [];
   if (updated)
     console.log(
       `Brought the database schema up to date (${updated} change(s)).`,
@@ -77,8 +98,10 @@ export async function setupDatabase(options) {
         ? "Loaded demo movies, members, lists and screenings."
         : "Existing data retained.",
     );
-    const { films, members, halls, comments, bookmarks } =
-      await extendCatalog(pool);
+    const { films, members, halls, comments, bookmarks } = await extendCatalog(
+      pool,
+      { createdTables },
+    );
     if (films) console.log(`Added ${films} film(s) to the catalogue.`);
     if (members) console.log(`Added ${members} demo member(s).`);
     if (halls)

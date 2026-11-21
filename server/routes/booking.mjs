@@ -158,6 +158,41 @@ export async function ticketRows(pool, userId) {
   );
   return rows.map((t) => ({ ...t, poster: presentation(t).poster }));
 }
+// Books seats for a member inside the caller's transaction, priced exactly as at checkout:
+// locks the screening and seats, checks availability, writes tickets, the discount each one
+// used, and the seat status. Returns the new ticket ids. The demo seed uses it too.
+export async function bookSeats(c, userId, screeningId, seatIds) {
+  // Serialize updates for this screening, including availability checks and all seat writes.
+  await c.execute(
+    "SELECT screening_id FROM screening WHERE screening_id=? FOR UPDATE",
+    [screeningId],
+  );
+  const screening = await getScreening(c, screeningId);
+  await c.execute(
+    `SELECT screening_seat_id FROM screening_seat WHERE screening_id=? AND screening_seat_id IN(${seatIds.map(() => "?").join(",")}) ORDER BY screening_seat_id FOR UPDATE`,
+    [screeningId, ...seatIds],
+  );
+  const seats = await selectedSeats(c, screeningId, seatIds),
+    priced = await quote(c, screening, seats, userId),
+    ticketIds = [];
+  for (const item of priced.items) {
+    const [result] = await c.execute(
+      "INSERT INTO ticket(user_id,screening_id,screening_seat_id,price) VALUES(?,?,?,?)",
+      [userId, screeningId, item.screeningSeatId, item.price],
+    );
+    ticketIds.push(result.insertId);
+    if (item.discountId)
+      await c.execute("INSERT INTO ticket_discount VALUES(?,?)", [
+        result.insertId,
+        item.discountId,
+      ]);
+    await c.execute(
+      "UPDATE screening_seat SET status='booked' WHERE screening_id=? AND screening_seat_id=?",
+      [screeningId, item.screeningSeatId],
+    );
+  }
+  return ticketIds;
+}
 export function booking(pool) {
   const router = Router();
   router.get("/cinemas", async (req, res) => {
@@ -197,38 +232,9 @@ export function booking(pool) {
   });
   router.post("/bookings", requireUser, async (req, res) => {
     const { screeningId, seatIds } = selection(req.body);
-    const ticketIds = await transaction(pool, async (c) => {
-      // Serialize updates for this screening, including availability checks and all seat writes.
-      await c.execute(
-        "SELECT screening_id FROM screening WHERE screening_id=? FOR UPDATE",
-        [screeningId],
-      );
-      const screening = await getScreening(c, screeningId);
-      await c.execute(
-        `SELECT screening_seat_id FROM screening_seat WHERE screening_id=? AND screening_seat_id IN(${seatIds.map(() => "?").join(",")}) ORDER BY screening_seat_id FOR UPDATE`,
-        [screeningId, ...seatIds],
-      );
-      const seats = await selectedSeats(c, screeningId, seatIds),
-        priced = await quote(c, screening, seats, req.session.userId),
-        ticketIds = [];
-      for (const item of priced.items) {
-        const [result] = await c.execute(
-          "INSERT INTO ticket(user_id,screening_id,screening_seat_id,price) VALUES(?,?,?,?)",
-          [req.session.userId, screeningId, item.screeningSeatId, item.price],
-        );
-        ticketIds.push(result.insertId);
-        if (item.discountId)
-          await c.execute("INSERT INTO ticket_discount VALUES(?,?)", [
-            result.insertId,
-            item.discountId,
-          ]);
-        await c.execute(
-          "UPDATE screening_seat SET status='booked' WHERE screening_id=? AND screening_seat_id=?",
-          [screeningId, item.screeningSeatId],
-        );
-      }
-      return ticketIds;
-    });
+    const ticketIds = await transaction(pool, (c) =>
+      bookSeats(c, req.session.userId, screeningId, seatIds),
+    );
     res.status(201).json({
       tickets: (await ticketRows(pool, req.session.userId)).filter((t) =>
         ticketIds.includes(t.ticketId),
